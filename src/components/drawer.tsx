@@ -43,8 +43,8 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   const isTouching = useRef(false);
   const drawerY = useObservableValue(0);
   const transition = useObservableValue<
-    "instant" | "interporlates" | "enter" | "exit"
-  >("interporlates");
+    "instant" | "default" | "enter" | "exit"
+  >("default");
 
   // not using spring because of lag in low power mode
   /* const defaultSpring = useMemo(
@@ -135,7 +135,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
   useObserve(transition, (latest) => {
     const sheet = drawerRef.current;
-    if (latest === "interporlates") {
+    if (latest === "default") {
       // spring animation implementation
       // sheet.style.setProperty("--duration", `${defaultSpring.duration}s`);
       // sheet.style.setProperty("--easing", `${defaultSpring.timingFunction}`);
@@ -156,12 +156,15 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
     if (latest === "enter") {
       sheet.style.setProperty("--duration", `.6s`);
+      // uses custom easing for more vigorous feeling
       sheet.style.setProperty("--easing", `cubic-bezier(.35,.79,.23,1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
     }
+
+    // use ease out quint for a smoother motion
     if (latest === "exit") {
-      sheet.style.setProperty("--duration", `.4s`);
+      sheet.style.setProperty("--duration", `.35s`);
       sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
@@ -217,7 +220,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
           });
 
           requestAnimationFrame(() => {
-            transition.set("interporlates");
+            transition.set("default");
             requestAnimationFrame(() => {
               drawerY.set(0);
             });
@@ -402,7 +405,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     if (isPresent) {
       // needs a slight delay so the enter animation can be reset to zero
       requestAnimationFrame(() => {
-        transition.set("interporlates");
+        transition.set("default");
         drawerY.set(0);
       });
       return;
