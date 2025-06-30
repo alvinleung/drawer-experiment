@@ -76,7 +76,7 @@ export default function Home() {
     }
 
     const current = performance.now();
-    const elapsedTime = current - lastChangeRef.current;
+    // const elapsedTime = current - lastChangeRef.current;
     lastChangeRef.current = current;
 
     // const currValue = spring.solve(elapsedTime);

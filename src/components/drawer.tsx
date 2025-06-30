@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 import { createSpring, createSpringTimingFunction } from "./spring-motion";
-import { useAnimationFrame, velocityPerSecond } from "framer-motion";
+import { velocityPerSecond } from "framer-motion";
 import { MovementTracker } from "./movement-tracker";
 import {
   useObserveScroll,
@@ -20,7 +20,6 @@ import {
 import React from "react";
 import { usePresence } from "./presence";
 import "./log";
-import { request } from "http";
 
 const clamp = (min: number, max: number, value: number) =>
   Math.max(min, Math.min(max, value));
