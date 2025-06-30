@@ -1,5 +1,3 @@
-import { FUNCTIONS_CONFIG_MANIFEST } from "next/dist/shared/lib/constants";
-
 let elm: HTMLDivElement;
 
 // only support rgb, because browser will convert it to rgb and it
