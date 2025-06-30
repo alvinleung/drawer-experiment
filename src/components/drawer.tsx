@@ -42,7 +42,6 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
   const isTouching = useRef(false);
   const drawerY = useObservableValue(0);
-  const canContentScroll = useObservableValue(false);
   const transition = useObservableValue<
     "instant" | "interporlates" | "enter" | "exit"
   >("interporlates");
@@ -95,7 +94,9 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
       // trigger artificial overscroll bounce base on scroll velocity
       const spring = createSpring({
-        stiffness: 200, // default: 170
+        // stiffness: 200, // default: 170
+        // damping: 32, // default: 26
+        stiffness: 160, // default: 170
         damping: 26, // default: 26
         mass: 1,
         velocity: -prevFrameScrollVelocityRef.current,
@@ -160,7 +161,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       return;
     }
     if (latest === "exit") {
-      sheet.style.setProperty("--duration", `.35s`);
+      sheet.style.setProperty("--duration", `.4s`);
       sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
@@ -174,8 +175,6 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   });
 
   useObserve(drawerY, (latest) => {
-    canContentScroll.set(latest <= 0);
-
     // remove bounce animation (which easing curve interferes)
     drawerRef.current.getAnimations().forEach((anim) => anim.cancel());
 
@@ -186,15 +185,6 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       `translate3d(0px, ${latest}px, 0px)`,
     );
     // drawerRef.current.style.setProperty("--y-offset", `${latest}px`);
-  });
-
-  useObserve(canContentScroll, (latest) => {
-    const elm = touchTargetRef.current;
-    if (latest) {
-      elm.style.setProperty("overflow-y", `scroll`);
-      return;
-    }
-    elm.style.setProperty("overflow-y", `scroll`);
   });
 
   // WORK AROUND FOR MOBILE BROWSER:
@@ -363,10 +353,6 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       return;
     }
 
-    // enable motion
-    transition.set("interporlates");
-    canContentScroll.set(true);
-
     // figure out the snapping
     const COMMIT_THRESHOLD = 0.75;
     const isOverCommitThreshold =
@@ -378,6 +364,8 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     const isCancelDirection = velocitySmoothed < 0;
 
     if ((isOverCommitThreshold && !isCancelDirection) || isFlick) {
+      // enable motion
+      transition.set("exit");
       // like bounce, the animation starts a frame later to make sure
       // motion is set to "interpolates" to trigger a smooth animation
       requestAnimationFrame(() => {
@@ -386,6 +374,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       onDismiss?.();
       return;
     }
+    transition.set("enter");
     // same as above
     requestAnimationFrame(() => {
       drawerY.set(0);
@@ -393,7 +382,6 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   }, [
     contentScrollY,
     transition,
-    canContentScroll,
     drawerY,
     touchMovement,
     compensateScrollDebounced,
@@ -439,7 +427,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
   return (
     <div
-      className="fixed inset-0 overscroll-none"
+      className="fixed inset-0 overflow-y-scroll overscroll-none"
       ref={touchTargetRef}
       // HACK:
       // put the touch detection at a stationary div
