@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 import { createSpring, createSpringTimingFunction } from "./spring-motion";
-import { velocityPerSecond } from "framer-motion";
+import { useAnimationFrame, velocityPerSecond } from "framer-motion";
 import { MovementTracker } from "./movement-tracker";
 import {
   useObserveScroll,
@@ -19,6 +19,8 @@ import {
 } from "./observable-value";
 import React from "react";
 import { usePresence } from "./presence";
+import "./log";
+import { request } from "http";
 
 const clamp = (min: number, max: number, value: number) =>
   Math.max(min, Math.min(max, value));
@@ -40,11 +42,11 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   }>(null);
 
   const isTouching = useRef(false);
-  const drawerOffsetY = useObservableValue(0);
+  const drawerY = useObservableValue(0);
   const canContentScroll = useObservableValue(false);
-  const motion = useObservableValue<"instant" | "interporlates">(
-    "interporlates",
-  );
+  const transition = useObservableValue<
+    "instant" | "interporlates" | "enter" | "exit"
+  >("interporlates");
 
   // not using spring because of lag in low power mode
   /* const defaultSpring = useMemo(
@@ -79,9 +81,6 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
       // HACK: use movement delta here as a proximiate
       if (latest > movementDelta) {
-        // force the drawer to be full screen when the content is scrolling
-        // drawerOffsetY.set(0);
-
         // Save the prev frame delta
         prevFrameScrollVelocityRef.current = velocity;
         isPerformingBounceRef.current = false;
@@ -107,15 +106,15 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
       // It requires to slightly delay the animation execuation
       // in order to reliably perform the animation
-      const animateBounce = () => {
+      const animateBounce = async () => {
         drawerRef.current.animate(
           [
             {
               // use 1 pixel to trigger the overscroll bounce animationi
-              transform: "translateY(1px)",
+              transform: "translate3d(0px, 1px, 0px)",
             },
             {
-              transform: "translateY(0px)",
+              transform: "translate3d(0px, 0px, 0px)",
             },
           ],
           {
@@ -127,12 +126,14 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
           },
         );
       };
+      // requestAnimationFrame is used to delay execution of animation
+      // as a workaround of browser ignoring animation
       requestAnimationFrame(animateBounce);
     },
     false,
   );
 
-  useObserve(motion, (latest) => {
+  useObserve(transition, (latest) => {
     const sheet = drawerRef.current;
     if (latest === "interporlates") {
       // spring animation implementation
@@ -142,7 +143,26 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       // use cubic bezier for better performance
       // sheet.style.setProperty("--duration", `2s`);
       sheet.style.setProperty("--duration", `.5s`);
-      sheet.style.setProperty("--easing", `cubic-bezier(0.25, 1, 0.5, 1)`);
+
+      // ease out quint is the closet to the spring easing curve
+      sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
+
+      // custom easing that is based on ease-out-quit, with more anticipation
+      // sheet.style.setProperty("--easing", `cubic-bezier(.35,.79,.23,1)`);
+      sheet.style.setProperty("--transition", `all`);
+
+      return;
+    }
+
+    if (latest === "enter") {
+      sheet.style.setProperty("--duration", `.6s`);
+      sheet.style.setProperty("--easing", `cubic-bezier(.35,.79,.23,1)`);
+      sheet.style.setProperty("--transition", `all`);
+      return;
+    }
+    if (latest === "exit") {
+      sheet.style.setProperty("--duration", `.35s`);
+      sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
     }
@@ -154,9 +174,19 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     }
   });
 
-  useObserve(drawerOffsetY, (latest) => {
+  useObserve(drawerY, (latest) => {
     canContentScroll.set(latest <= 0);
-    drawerRef.current.style.setProperty("--y-offset", `${latest}px`);
+
+    // remove bounce animation (which easing curve interferes)
+    drawerRef.current.getAnimations().forEach((anim) => anim.cancel());
+
+    // Update freaquent css changes directly rather via variable
+    // SEE: https://blog.aboutme.be/2023/04/21/css-variables-can-be-slow-in-safari/
+    drawerRef.current.style.setProperty(
+      "transform",
+      `translate3d(0px, ${latest}px, 0px)`,
+    );
+    // drawerRef.current.style.setProperty("--y-offset", `${latest}px`);
   });
 
   useObserve(canContentScroll, (latest) => {
@@ -186,20 +216,22 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       scrollCompensateTimeoutRef.current = setTimeout(() => {
         scrollContainer.removeEventListener("scroll", handleScroll);
 
-        const remaindingOffset = drawerOffsetY.get();
+        const remaindingOffset = getComputedYTranslate(drawerRef.current);
         const scrollOffest = touchTargetRef.current.scrollTop;
 
         if (scrollOffest < remaindingOffset) {
           // user scroll back up to the snap area
-          motion.set("instant");
-          drawerOffsetY.set(remaindingOffset - scrollOffest);
+          transition.set("instant");
+          drawerY.set(remaindingOffset - scrollOffest);
           scrollContainer.scrollTo({
             top: 0,
           });
 
           requestAnimationFrame(() => {
-            motion.set("interporlates");
-            drawerOffsetY.set(0);
+            transition.set("interporlates");
+            requestAnimationFrame(() => {
+              drawerY.set(0);
+            });
           });
           return;
         }
@@ -207,20 +239,30 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
         scrollContainer.scrollTo({
           top: scrollOffest - remaindingOffset,
         });
-        motion.set("instant");
-        drawerOffsetY.set(0);
+        transition.set("instant");
+        drawerY.set(0);
       }, 100);
     };
     handleScroll();
     scrollContainer.addEventListener("scroll", handleScroll);
-  }, [drawerOffsetY, motion]);
+  }, [drawerY, transition]);
 
   const touchMovement = useMemo(() => new MovementTracker(), []);
   const getComputedYTranslate = (elm: HTMLElement) => {
-    const computedTranslate = getComputedStyle(elm).translate;
-    const currentPosition = computedTranslate.split(" ");
-    const currentY = parseFloat(currentPosition[1]);
-    return currentY;
+    // to work with translate 3d we need to extract the position via the matrix
+    const computedStyle = getComputedStyle(elm);
+
+    // css matrix notation looks something like this:
+    // matrix(1, 0, 0, 1, 0, 204.453)
+    //
+    // SEE: https://developer.mozilla.org/en-US/docs/Web/CSS/transform-function/matrix
+    const positionComponents = computedStyle.transform
+      .substring("matrix(".length - 1, computedStyle.transform.length - 1) // remove the brackets and function
+      .split(",")
+      .map(parseFloat) // [0, 0, 0 , 1, 0, 204.453]
+      .slice(-2); // extract the position component
+
+    return positionComponents[1]; // the y component
   };
 
   const handleTouchStart = useCallback(
@@ -245,21 +287,22 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
         //
         //
         // the lag compensation create the illusion of catching the sheet.
-        const lagCompensationOffset = 40;
+        // const lagCompensationOffset = 40;
+        const lagCompensationOffset = 0;
         const clamped = clamp(
           0,
           window.innerHeight,
           currentY - lagCompensationOffset,
         );
 
-        motion.set("instant");
-        drawerOffsetY.set(clamped);
+        transition.set("instant");
+        drawerY.set(clamped);
       }
 
       isTouching.current = true;
       touchMovement.track(touchY);
     },
-    [motion, drawerOffsetY, touchMovement],
+    [transition, drawerY, touchMovement],
   );
 
   const handleTouchMove = useCallback(
@@ -269,7 +312,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       const vel = touchMovement.calculateVelocity();
 
       const hasScrolled = contentScrollY.get() > 0;
-      const isDismissing = drawerOffsetY.get() >= 0;
+      const isDismissing = drawerY.get() >= 0;
       const isUsingInitiatingScrollDown =
         !isDismissing && !hasScrolled && vel < 0;
 
@@ -279,7 +322,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       }
 
       // reject touches that outside of the drawer panel
-      if (touchY < drawerOffsetY.get()) {
+      if (touchY < drawerY.get()) {
         e.preventDefault();
         return;
       }
@@ -289,9 +332,9 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       if (!gestureInitialStateRef.current) {
         gestureInitialStateRef.current = {
           y: e.touches[0].clientY,
-          drawerOffsetY: drawerOffsetY.get(),
+          drawerOffsetY: drawerY.get(),
         };
-        motion.set("instant");
+        transition.set("instant");
         isTouching.current = true;
       }
 
@@ -305,9 +348,9 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       );
 
       // render it to the dom
-      drawerOffsetY.set(newY);
+      drawerY.set(newY);
     },
-    [contentScrollY, motion, drawerOffsetY, touchMovement],
+    [contentScrollY, transition, drawerY, touchMovement],
   );
 
   const handleTouchEnd = useCallback(() => {
@@ -322,13 +365,13 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     }
 
     // enable motion
-    motion.set("interporlates");
+    transition.set("interporlates");
     canContentScroll.set(true);
 
     // figure out the snapping
     const COMMIT_THRESHOLD = 0.75;
     const isOverCommitThreshold =
-      (window.innerHeight - drawerOffsetY.get()) / window.innerHeight <
+      (window.innerHeight - drawerY.get()) / window.innerHeight <
       COMMIT_THRESHOLD;
 
     const velocitySmoothed = touchMovement.calculateVelocity(3);
@@ -336,16 +379,23 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     const isCancelDirection = velocitySmoothed < 0;
 
     if ((isOverCommitThreshold && !isCancelDirection) || isFlick) {
-      drawerOffsetY.set(window.innerHeight);
+      // like bounce, the animation starts a frame later to make sure
+      // motion is set to "interpolates" to trigger a smooth animation
+      requestAnimationFrame(() => {
+        drawerY.set(window.innerHeight);
+      });
       onDismiss?.();
       return;
     }
-    drawerOffsetY.set(0);
+    // same as above
+    requestAnimationFrame(() => {
+      drawerY.set(0);
+    });
   }, [
     contentScrollY,
-    motion,
+    transition,
     canContentScroll,
-    drawerOffsetY,
+    drawerY,
     touchMovement,
     compensateScrollDebounced,
     onDismiss,
@@ -355,18 +405,18 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
   // set the position to window height as an entry animation
   useLayoutEffect(() => {
-    motion.set("instant");
-    drawerOffsetY.set(window.innerHeight);
+    transition.set("instant");
+    drawerY.set(window.innerHeight);
     drawerRef.current.focus();
-  }, [drawerOffsetY, motion]);
+  }, [drawerY, transition]);
 
   useEffect(() => {
     const sheet = drawerRef.current;
     if (isPresent) {
       // needs a slight delay so the enter animation can be reset to zero
       requestAnimationFrame(() => {
-        motion.set("interporlates");
-        drawerOffsetY.set(0);
+        transition.set("interporlates");
+        drawerY.set(0);
       });
       return;
     }
@@ -375,8 +425,11 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     return () => {
       sheet.removeEventListener("transitionend", safeToRemove);
     };
-  }, [drawerOffsetY, isPresent, motion, safeToRemove]);
+  }, [drawerY, isPresent, transition, safeToRemove]);
 
+  // because we are using an invisible touch target at the background
+  // to track finger gesture, it sits on top of the body, blocking all interactions.
+  // for better user experience, we need to stop blocking it asap.
   useEffect(() => {
     if (!isPresent) {
       touchTargetRef.current.style.pointerEvents = "none";
@@ -400,7 +453,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     >
       <div
         ref={drawerRef}
-        className="absolute will-change-transform  bg-blue-800  transition-(--transition) translate-y-(--y-offset) ease-(--easing) duration-(--duration)"
+        className="absolute will-change-transform  bg-blue-800 transition-(--transition) duration-(--duration) ease-(--easing)"
       >
         <div className="flex w-full items-center justify-center py-2">
           <div className={"h-1 w-12 bg-red-600"} />
