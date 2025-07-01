@@ -50,11 +50,11 @@ export class ObservableValue<T> {
   }
 
   set(value: T) {
+    // don't fire update event when prev is equal the current value
+    if (value === this.value) return;
+
     this.prevValue = this.value;
     this.value = value;
-
-    // don't fire update event when prev is equal the current value
-    if (this.value === this.prevValue) return;
 
     for (const changeHandler of this.listeners) {
       changeHandler(this.value);
