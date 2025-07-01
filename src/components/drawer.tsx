@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 import { createSpring, createSpringTimingFunction } from "./spring-motion";
-import { useAnimationFrame, velocityPerSecond } from "framer-motion";
+import { velocityPerSecond } from "framer-motion";
 import { MovementTracker } from "./movement-tracker";
 import {
   useObserveScroll,
@@ -257,13 +257,13 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     return positionComponents[1]; // the y component
   };
 
-  const prev = useRef(0);
-  useAnimationFrame(() => {
-    const curr = performance.now();
-    const diff = curr - prev.current;
-    console.log(diff);
-    prev.current = curr;
-  });
+  // const prev = useRef(0);
+  // useAnimationFrame(() => {
+  //   const curr = performance.now();
+  //   const diff = curr - prev.current;
+  //   console.log(diff);
+  //   prev.current = curr;
+  // });
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
@@ -289,7 +289,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
         // the lag compensation create the illusion of catching the sheet.
         // const lagCompensationOffset = 40;
 
-        const lagCompensationFactor = 200;
+        const lagCompensationFactor = 100;
         const previous = drawerY.getPrevious() || drawerY.get();
         const yDelta = drawerY.get() - previous; // yDelta is NOT velocity, because input could be descrete
         // const direction = yDelta > 0 ? -1 : 1;
