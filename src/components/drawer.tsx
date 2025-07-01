@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 import { createSpring, createSpringTimingFunction } from "./spring-motion";
-import { velocityPerSecond } from "framer-motion";
+import { useAnimationFrame, velocityPerSecond } from "framer-motion";
 import { MovementTracker } from "./movement-tracker";
 import {
   useObserveScroll,
@@ -162,7 +162,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       return;
     }
 
-    // use ease out quint for a smoother motion
+    // use ease out quint for a quick but smoother motion
     if (latest === "exit") {
       sheet.style.setProperty("--duration", `.35s`);
       sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
@@ -257,6 +257,14 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     return positionComponents[1]; // the y component
   };
 
+  const prev = useRef(0);
+  useAnimationFrame(() => {
+    const curr = performance.now();
+    const diff = curr - prev.current;
+    // console.log(diff);
+    prev.current = curr;
+  });
+
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       if (scrollCompensateTimeoutRef.current)
@@ -280,7 +288,17 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
         //
         // the lag compensation create the illusion of catching the sheet.
         // const lagCompensationOffset = 40;
-        const lagCompensationOffset = 0;
+
+        const lagCompensationFactor = 200;
+        const previous = drawerY.getPrevious() || drawerY.get();
+        const yDelta = drawerY.get() - previous; // yDelta is NOT velocity, because input could be descrete
+        // const direction = yDelta > 0 ? -1 : 1;
+        const lagCompensationOffset =
+          (lagCompensationFactor * -yDelta) / window.innerHeight;
+        console.log("current", drawerY.get());
+        console.log("yDelta", yDelta);
+        console.log("lag compensation offset", lagCompensationOffset);
+
         const clamped = clamp(
           0,
           window.innerHeight,
