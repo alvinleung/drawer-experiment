@@ -10,7 +10,9 @@ export default function DrawerPage() {
     <div className={``}>
       <button
         className="p-8 bg-gray-700 rounded-2xl "
-        onClick={() => setIsShowingDrawer(true)}
+        onClick={() => {
+          setIsShowingDrawer(true);
+        }}
       >
         Open Drawer
       </button>
@@ -19,7 +21,12 @@ export default function DrawerPage() {
       </button>
       <AnimatePresence>
         {isShowingDrawer && (
-          <Drawer key={"drawer"} onDismiss={() => setIsShowingDrawer(false)}>
+          <Drawer
+            key={"drawer"}
+            onDismiss={() => {
+              setIsShowingDrawer(false);
+            }}
+          >
             <Content />
           </Drawer>
         )}

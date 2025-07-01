@@ -350,7 +350,7 @@ export function Drawer({
 
       // reject touches that outside of the drawer panel
       if (touchY < currentY) {
-        e.preventDefault();
+        // e.preventDefault();
         return;
       }
 
@@ -386,7 +386,7 @@ export function Drawer({
       // reject touches that outside of the drawer panel
       // (we are using a dedicated fixed div to detect touch)
       if (touchY < drawerY.get()) {
-        e.preventDefault();
+        // e.preventDefault();
         return;
       }
 
@@ -473,6 +473,7 @@ export function Drawer({
 
   useEffect(() => {
     const sheet = drawerRef.current;
+
     if (isPresent) {
       // needs a slight delay so the enter animation can be reset to zero
       requestAnimationFrame(() => {
@@ -481,6 +482,7 @@ export function Drawer({
       });
       return;
     }
+    drawerY.set(window.innerHeight);
 
     sheet.addEventListener("transitionend", safeToRemove);
     return () => {
@@ -511,9 +513,13 @@ export function Drawer({
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
       onTouchStart={handleTouchStart}
+      onClick={() => {
+        onDismiss?.();
+      }}
     >
       <div
         ref={drawerRef}
+        onClickCapture={(e) => e.stopPropagation()}
         className="absolute top-6 rounded-t-2xl will-change-transform  bg-blue-800 transition-(--transition) duration-(--duration) ease-(--easing)"
       >
         <div className="flex w-full items-center justify-center py-2">
