@@ -25,6 +25,7 @@ const clamp = (min: number, max: number, value: number) =>
 
 interface DrawerProps extends PropsWithChildren {
   dismissResistence?: number;
+  commitThreshold?: number;
   onDismiss?: () => void;
 }
 
@@ -32,6 +33,7 @@ export function Drawer({
   children,
   onDismiss,
   dismissResistence = 0.4,
+  commitThreshold = 0.75,
 }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
   const touchTargetRef = useRef<HTMLDivElement>(
@@ -49,12 +51,6 @@ export function Drawer({
   const transition = useObservableValue<
     "instant" | "default" | "enter" | "exit"
   >("default");
-
-  // not using spring because of lag in low power mode
-  /* const defaultSpring = useMemo(
-    () => createSpring({ stiffness: 1000, damping: 100 }),
-    [],
-  ); */
 
   // for scroll bounce effect
   const prevFrameScrollVelocityRef = useRef(0);
@@ -137,6 +133,9 @@ export function Drawer({
     false,
   );
 
+  // =================================================================
+  // transition definitions
+  // =================================================================
   useObserve(transition, (latest) => {
     const sheet = drawerRef.current;
     if (latest === "default") {
@@ -181,6 +180,9 @@ export function Drawer({
     }
   });
 
+  // =================================================================
+  // Commiting DOM Update
+  // =================================================================
   const drawerYLastUpdate = useRef(0);
   useObserve(drawerY, (latest) => {
     // timestamp the for calculating motion offset
@@ -195,10 +197,20 @@ export function Drawer({
       "transform",
       `translate3d(0px, ${latest}px, 0px)`,
     );
-    // drawerRef.current.style.setProperty("--y-offset", `${latest}px`);
   });
 
-  // WORK AROUND FOR MOBILE BROWSER:
+  // Interruptable gesture:
+  //
+  // To achieve interruptable gesture, the appoach here seamlessly blend scroll and
+  // the dismiss gesture together. Mobile browser numerous constraints that make it
+  // really difficault to achieve this. For example, it is nearly impossible to
+  // initiate scroll that mimic native scroll momentum. Making gesture continuation
+  // a very tricky to deal with.
+  //
+  // The final solution here take advantage the fact that the browser will intercept
+  // the manipulation of drawerY and turn that into a scroll gesture if there is room
+  // to be scrolled. For instance, you swipe up with touch but the content has room
+  // to scroll down as a respond to the gesture, it will scroll down.
   //
   // super hacky way to compensate scroll and offsetY difference
   // after interrupting touch gesture with scroll. The debounce is being reset
@@ -269,9 +281,60 @@ export function Drawer({
   }, [drawerY, transition]);
 
   const touchMovement = useMemo(() => new MovementTracker(), []);
-
-  const easeFunc = useMemo(() => cubicBezier(0.35, 0.79, 0.23, 1), []);
+  const defaultEaseFunc = useMemo(() => cubicBezier(0.35, 0.79, 0.23, 1), []);
   const hasActiveTransiton = useHasActiveTransition(drawerRef);
+
+  // This function computes the position where the drawer is interrupted at.
+  // Since we are using CSS transition, there is no clean way
+  // simply get the mid-transition value. The following are 2 strategies:
+  const getInterruptedDrawerPosition = useCallback(
+    (computedStyle: CSSStyleDeclaration) => {
+      if (hasActiveTransiton.get()) {
+        // Strategy 1 - FOR TRANSITION:
+        //
+        // On mobile, because of performance constraint, it throttles the reading of
+        // computed translate y. The lag resulting a y position that is (roughly) a frame before.
+        //
+        // To counter that, we compute the estimated location through evaluating the easing function
+        // and speculate ahead a small amount of where the y position would land.
+
+        const previous = drawerY.getPrevious() || drawerY.get();
+
+        // yMotion is NOT velocity, it is decrete beginning and end of the motion
+        const yDist = drawerY.get() - previous;
+
+        const elapsedTime = performance.now() - drawerYLastUpdate.current;
+        const duration = getTransitionDurationSeconds(computedStyle);
+        const speculationAmount = 0.18; // how long does it look forward to compensate
+        const animProg = defaultEaseFunc(
+          elapsedTime / (duration * 1000) + speculationAmount,
+        );
+        const speculatedPosition = -yDist * (1 - animProg);
+        return speculatedPosition;
+      }
+
+      // Strategy 2 - FOR ANIMATION:
+      //
+      // Through experiment, we found that the translate Y is more reliable when it
+      // comes to estimating the position in animation. So we basically take
+      // the computed CSS value here.
+
+      const currentY = getTranslateY(computedStyle);
+      if (isNaN(currentY)) {
+        return null;
+      }
+      return currentY;
+    },
+    [defaultEaseFunc, drawerY, hasActiveTransiton],
+  );
+
+  // ======================================================================
+  //
+  //
+  // TOUCH EVENT HANDLER
+  //
+  //
+  // ======================================================================
 
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
@@ -291,36 +354,17 @@ export function Drawer({
         return;
       }
 
-      if (!isNaN(currentY)) {
-        // on mobile, because of performance constraint, it throttles the reading of
-        // computed translate y. The lag resulting a y position that is (roughly) a frame before.
-        const previous = drawerY.getPrevious() || drawerY.get();
-
-        // yMotion is NOT velocity, because input could be descrete, beginning and ending of motion
-        const yDist = drawerY.get() - previous;
-
-        const elapsedTime = performance.now() - drawerYLastUpdate.current;
-        const duration = getTransitionDurationSeconds(computedStyle);
-        const stepSize = 0.18; // how much does it look forward to compensate
-        const animProg = easeFunc(elapsedTime / (duration * 1000) + stepSize);
-        const inferredPosition = -yDist * (1 - animProg);
-
-        if (hasActiveTransiton.get()) {
-          const clamped = clamp(0, window.innerHeight, inferredPosition);
-
-          transition.set("instant");
-          drawerY.set(clamped, true);
-        } else {
-          const clamped = clamp(0, window.innerHeight, currentY);
-          transition.set("instant");
-          drawerY.set(clamped, true);
-        }
+      const interceptedPosition = getInterruptedDrawerPosition(computedStyle);
+      if (interceptedPosition) {
+        const clamped = clamp(0, window.innerHeight, interceptedPosition);
+        transition.set("instant");
+        drawerY.set(clamped, true);
       }
 
       touchMovement.reset();
       touchMovement.track(touchY);
     },
-    [touchMovement, drawerY, easeFunc, hasActiveTransiton, transition],
+    [getInterruptedDrawerPosition, touchMovement, transition, drawerY],
   );
 
   const handleTouchMove = useCallback(
@@ -340,13 +384,13 @@ export function Drawer({
       }
 
       // reject touches that outside of the drawer panel
+      // (we are using a dedicated fixed div to detect touch)
       if (touchY < drawerY.get()) {
         e.preventDefault();
         return;
       }
 
-      // for some reason this is running when offset become zero:
-      // making it unable to scroll down
+      // we initiate the gesture if it hasn't been initiated
       if (!gestureInitialStateRef.current) {
         gestureInitialStateRef.current = {
           y: e.touches[0].clientY,
@@ -359,15 +403,12 @@ export function Drawer({
       const touchOffset = gestureInitialStateRef.current.y - touchY;
       const resistence = touchOffset * dismissResistence;
 
-      // update the offest here
-      const newY = clamp(
-        0,
-        window.innerHeight,
-        gestureInitialStateRef.current.drawerOffsetY - touchOffset + resistence,
-      );
+      const newPosition =
+        gestureInitialStateRef.current.drawerOffsetY - touchOffset + resistence;
+      const clampedNewPosition = clamp(0, window.innerHeight, newPosition);
 
       // render it to the dom
-      drawerY.set(newY);
+      drawerY.set(clampedNewPosition);
     },
     [touchMovement, contentScrollY, drawerY, dismissResistence, transition],
   );
@@ -385,10 +426,9 @@ export function Drawer({
     }
 
     // figure out the snapping
-    const COMMIT_THRESHOLD = 0.75;
     const isOverCommitThreshold =
       (window.innerHeight - drawerY.get()) / window.innerHeight <
-      COMMIT_THRESHOLD;
+      commitThreshold;
 
     const velocitySmoothed = touchMovement.calculateVelocity(3);
     const isFlick = velocitySmoothed > 10;
@@ -396,25 +436,28 @@ export function Drawer({
 
     if ((isOverCommitThreshold && !isCancelDirection) || isFlick) {
       // enable motion
-      transition.set("exit");
+      //
       // like bounce, the animation starts a frame later to make sure
       // motion is set to "interpolates" to trigger a smooth animation
+      transition.set("exit");
       requestAnimationFrame(() => {
         drawerY.set(window.innerHeight);
       });
       onDismiss?.();
       return;
     }
-    transition.set("enter");
+
     // same as above
+    transition.set("enter");
     requestAnimationFrame(() => {
       drawerY.set(0);
     });
   }, [
     contentScrollY,
-    transition,
     drawerY,
+    commitThreshold,
     touchMovement,
+    transition,
     compensateScrollDebounced,
     onDismiss,
   ]);
@@ -458,7 +501,7 @@ export function Drawer({
 
   return (
     <div
-      className="select-none fixed inset-0 overflow-y-scroll overscroll-none"
+      className="select-none fixed inset-0 overflow-y-scroll overscroll-none no-scrollbar"
       ref={touchTargetRef}
       // HACK:
       // put the touch detection at a stationary div
@@ -546,4 +589,43 @@ function executeEventListenerOnce<
     element.removeEventListener(type, handler, options);
   };
   element.addEventListener(type, handler, options);
+}
+
+export function startTransition<T extends HTMLElement>(
+  elm: T,
+  safelyPerformTransition: () => void,
+) {
+  return new Promise<void>((resolve, reject) => {
+    const end = () => {
+      cleanupListeners();
+      resolve();
+    };
+    const cancel = () => {
+      cleanupListeners();
+      reject();
+    };
+    const cleanupListeners = () => {
+      elm.removeEventListener("transitionend", end);
+      elm.removeEventListener("transitioncancel", cancel);
+    };
+
+    let hasStarted = false;
+    const start = () => {
+      hasStarted = true;
+      elm.removeEventListener("transitionstart", start);
+      elm.removeEventListener("transitionstrun", start);
+    };
+
+    elm.addEventListener("transitionstart", start);
+    elm.addEventListener("transitionstrun", start);
+    elm.addEventListener("transitionend", end);
+    elm.addEventListener("transitioncancel", cancel);
+
+    safelyPerformTransition();
+    requestAnimationFrame(() => {
+      if (!hasStarted) {
+        end();
+      }
+    });
+  });
 }
