@@ -289,7 +289,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
         // the lag compensation create the illusion of catching the sheet.
         // const lagCompensationOffset = 40;
 
-        const lagCompensationFactor = 100;
+        // const lagCompensationFactor = 100;
         const previous = drawerY.getPrevious() || drawerY.get();
 
         // yMotion is NOT velocity, because input could be descrete, beginning and ending of motion
