@@ -261,7 +261,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   useAnimationFrame(() => {
     const curr = performance.now();
     const diff = curr - prev.current;
-    // console.log(diff);
+    console.log(diff);
     prev.current = curr;
   });
 
