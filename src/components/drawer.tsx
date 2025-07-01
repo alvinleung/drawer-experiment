@@ -158,9 +158,9 @@ export function Drawer({
     }
 
     if (latest === "enter") {
-      sheet.style.setProperty("--duration", `.6s`);
+      sheet.style.setProperty("--duration", `.5s`);
       // uses custom easing for more vigorous feeling
-      sheet.style.setProperty("--easing", `cubic-bezier(.35,.79,.23,1)`);
+      sheet.style.setProperty("--easing", `cubic-bezier(.32, .72, 0, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
     }

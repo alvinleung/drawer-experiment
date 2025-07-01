@@ -1,102 +1,91 @@
 "use client";
 
-import { createSpring } from "@/components/spring-motion";
-import { RefObject, useCallback, useEffect, useMemo, useRef } from "react";
+import { Drawer } from "@/components/drawer";
+import { AnimatePresence } from "@/components/presence";
+import { useState } from "react";
 
-/*
- * Right now the browser is responding to spring:
- * but there are a few interesting unresolved problem.
- *
- * Fristly:
- *
- * When we redirect the ball, all the momentum was lost.
- * It become a simple snap.
- *
- * To address this, the approach is to calulate the velocity when redirection happens.
- * And feed that velocity into a new spring calculation.
- *
- * Secondly:
- *
- * Spring value often best decoupled with different Axis so the damping is realistic when you
- * animating both axis XY. But this could be out of scope of our simple use case of animating
- * a raousel
- *
- * Thridly:
- *
- * The duration of the spring animation should be scaled with the distance it tranvels.
- * Right now it is focusing on the use of zero-one
- *
- */
-
-export default function Home() {
-  const blockRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
-
-  /* const posX = useSpring(0, {
-    stiffness: 170,
-    damping: 25,
-    velocity: 0,
-    mass: 1,
-  });
-  const posY = useSpring(0, {
-    stiffness: 170,
-    damping: 25,
-    velocity: 0,
-    mass: 1,
-  }); */
-
-  const spring = useMemo(
-    () =>
-      createSpring({
-        stiffness: 170,
-        damping: 25,
-        velocity: 0,
-        mass: 1,
-      }),
-    [],
-  );
-
-  useEffect(() => {
-    const block = blockRef.current;
-    if (block === undefined) {
-      return;
-    }
-
-    block.style.transition = `transform`;
-    block.style.transitionTimingFunction = spring.timingFunction;
-    // block.style.transitionTimingFunction = `cubic-bezier(0.16, 1, 0.3, 1)`;
-
-    block.style.transitionDuration = `${spring.duration}s`;
-  }, [spring.duration, spring.timingFunction]);
-
-  const lastChangeRef = useRef(0);
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    const block = blockRef.current;
-    if (block === undefined) {
-      return;
-    }
-
-    const current = performance.now();
-    // const elapsedTime = current - lastChangeRef.current;
-    lastChangeRef.current = current;
-
-    // const currValue = spring.solve(elapsedTime);
-    // console.log(currValue);
-
-    // block.style.transitionTimingFunction = `cubic-bezier(0.25, 1, 0.5, 1)`;
-    // block.style.transitionTimingFunction = `linear`;
-    block.style.transform = `translateX(${e.clientX}px) translateY(${e.clientY}px)`;
-
-    /* posX.set(e.clientX + 24);
-      posY.set(e.clientY + 24); */
-  }, []);
-
+export default function DrawerPage() {
+  const [isShowingDrawer, setIsShowingDrawer] = useState(false);
   return (
-    <div onClick={handleClick} className="w-screen h-screen">
-      <div ref={blockRef} className="bg-red-600 size-6  rounded-xl"></div>
-      {/* <motion.div */}
-      {/*   style={{ x: posX, y: posY }} */}
-      {/*   className="bg-blue-600 size-6  rounded-xl" */}
-      {/* ></motion.div> */}
+    <div className={``}>
+      <button
+        className="p-8 bg-gray-700 rounded-2xl "
+        onClick={() => setIsShowingDrawer(true)}
+      >
+        Open Drawer
+      </button>
+      <button className="p-8 bg-gray-700 active:bg-amber-400 rounded-2xl ">
+        dummy button
+      </button>
+      <AnimatePresence>
+        {isShowingDrawer && (
+          <Drawer key={"drawer"} onDismiss={() => setIsShowingDrawer(false)}>
+            <Content />
+          </Drawer>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+
+const Content = () => {
+  return (
+    <div className="w-full px-4 py-6 space-y-12">
+      <section className="text-center">
+        <h1 className="text-3xl font-bold mb-2">Welcome to Wanderly</h1>
+        <p className="text-gray-600">
+          Explore new places, hidden gems, and stories worth remembering.
+        </p>
+      </section>
+
+      <section className="bg-gray-100 p-4 rounded-xl space-y-4">
+        <h2 className="text-xl font-semibold">Discover Hidden Gems</h2>
+        <p className="text-gray-700">
+          From cobblestone streets to quiet cafes tucked behind gardens, the
+          world is full of surprises. Whether you&apos;re venturing into unknown
+          neighborhoods or revisiting favorite cities, there&apos;s always
+          something something unexpected waiting around the corner.
+        </p>
+        <p className="text-gray-700">
+          Our curated guides lead you through local favorites, unspoken secrets,
+          and places where magic lingers in the air. Slow down, wander freely,
+          and let the world show you what it’s been hiding.
+        </p>
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="text-xl font-semibold">A Moment in the Mountains</h2>
+        <p className="text-gray-600 text-sm">
+          “The wind whispered between the peaks as if telling stories only the
+          stars could understand.”
+        </p>
+      </section>
+
+      <section className="bg-white p-4 shadow rounded-lg space-y-4">
+        <h2 className="text-xl font-semibold">Tips for Solo Travel</h2>
+        <ul className="list-disc list-inside text-gray-700 space-y-2">
+          <li>
+            Keep a handwritten journal to document your thoughts and sketches.
+          </li>
+          <li>
+            Wake up early—cities feel different before the world fully wakes.
+          </li>
+          <li>Talk to strangers (safely). Stories live in other people.</li>
+          <li>Use downtime for reflection, not just scrolling.</li>
+        </ul>
+      </section>
+
+      <section className="text-center py-10">
+        <h2 className="text-2xl font-bold mb-4">
+          Ready to Start Your Journey?
+        </h2>
+        <p className="text-gray-600 mb-6">
+          There’s a world waiting for you. You just need to take the first step.
+        </p>
+        <button className="bg-blue-600 text-white px-6 py-3 rounded-full font-semibold hover:bg-blue-700 transition">
+          Begin Exploring
+        </button>
+      </section>
+    </div>
+  );
+};
