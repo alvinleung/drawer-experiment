@@ -1,3 +1,4 @@
+const MAX_MESSAGE_COUNT = 32;
 let elm: HTMLDivElement;
 
 // only support rgb, because browser will convert it to rgb and it
@@ -36,11 +37,13 @@ function parseContentString(content: unknown): string {
   return JSON.stringify(content as object);
 }
 
+const AUTO_HIDE = false;
 const HIDE_TIMEOUT = 2000;
 let hideTimeout: ReturnType<typeof setTimeout> | undefined;
 let scrollToLatest = true;
 
-function resetHideTimer() {
+function debounceHide() {
+  if (!AUTO_HIDE) return;
   // set a timer for timeout
   clearTimeout(hideTimeout);
   hideTimeout = setTimeout(() => {
@@ -78,7 +81,7 @@ export function printDebug(content: unknown, color = "rgb(244, 244, 244)") {
       { capture: true },
     );
     window.addEventListener("pointerdown", () => {
-      resetHideTimer();
+      debounceHide();
     });
     const attemptToSnapToBotton = () => {
       const hasScrolledToBotton =
@@ -93,7 +96,7 @@ export function printDebug(content: unknown, color = "rgb(244, 244, 244)") {
     document.body.appendChild(elm);
   }
 
-  resetHideTimer();
+  debounceHide();
 
   const contentString = parseContentString(content);
 
@@ -124,6 +127,11 @@ export function printDebug(content: unknown, color = "rgb(244, 244, 244)") {
   messageHistory.push(newMessage);
 
   elm.appendChild(newMessage);
+
+  if (elm.children.length > MAX_MESSAGE_COUNT) {
+    elm.removeChild(elm.children[0]);
+    messageHistory.shift();
+  }
 
   if (scrollToLatest) {
     newMessage.scrollIntoView();

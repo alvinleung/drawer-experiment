@@ -24,10 +24,15 @@ const clamp = (min: number, max: number, value: number) =>
   Math.max(min, Math.min(max, value));
 
 interface DrawerProps extends PropsWithChildren {
+  dismissResistence: number;
   onDismiss?: () => void;
 }
 
-export function Drawer({ children, onDismiss }: DrawerProps) {
+export function Drawer({
+  children,
+  onDismiss,
+  dismissResistence = 0.4,
+}: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
   const touchTargetRef = useRef<HTMLDivElement>(
     null,
@@ -95,7 +100,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       const spring = createSpring({
         // stiffness: 200, // default: 170
         // damping: 32, // default: 26
-        stiffness: 160, // default: 170
+        stiffness: 200, // default: 170
         damping: 26, // default: 26
         mass: 1,
         velocity: -prevFrameScrollVelocityRef.current,
@@ -163,8 +168,8 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
     // use ease out quint for a quick but smoother motion
     if (latest === "exit") {
-      sheet.style.setProperty("--duration", `.45s`);
-      sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
+      sheet.style.setProperty("--duration", `.38s`);
+      sheet.style.setProperty("--easing", `cubic-bezier(0.25, 1, 0.5, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
     }
@@ -176,7 +181,11 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     }
   });
 
+  const drawerYLastUpdate = useRef(0);
   useObserve(drawerY, (latest) => {
+    // timestamp the for calculating motion offset
+    drawerYLastUpdate.current = performance.now();
+
     // remove bounce animation (which easing curve interferes)
     drawerRef.current.getAnimations().forEach((anim) => anim.cancel());
 
@@ -200,32 +209,53 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   >(undefined);
   const compensateScrollDebounced = useCallback(() => {
     const scrollContainer = touchTargetRef.current;
+
     const handleScroll = () => {
       if (scrollCompensateTimeoutRef.current) {
         clearTimeout(scrollCompensateTimeoutRef.current);
       }
+
       scrollCompensateTimeoutRef.current = setTimeout(() => {
         scrollContainer.removeEventListener("scroll", handleScroll);
 
-        const remaindingOffset = getComputedYTranslate(drawerRef.current);
+        // delay executing the compesnation if the finger is still on the screen
+        if (isTouching.current) {
+          executeEventListenerOnce(
+            touchTargetRef.current,
+            "touchend",
+            compensateScrollDebounced,
+          );
+          return;
+        }
+
+        const computedStyle = getComputedStyle(drawerRef.current);
+        const remaindingOffset = getTranslateY(computedStyle);
         const scrollOffest = touchTargetRef.current.scrollTop;
 
         if (scrollOffest < remaindingOffset) {
-          // user scroll back up to the snap area
+          // visually match the scroll with drawerY
           transition.set("instant");
           drawerY.set(remaindingOffset - scrollOffest);
           scrollContainer.scrollTo({
             top: 0,
           });
 
-          requestAnimationFrame(() => {
+          const snapBackToTop = () => {
             transition.set("default");
-            requestAnimationFrame(() => {
-              drawerY.set(0);
-            });
-          });
+            drawerY.set(0);
+          };
+          if (isTouching.current) {
+            executeEventListenerOnce(
+              touchTargetRef.current,
+              "touchend",
+              snapBackToTop,
+            );
+            return;
+          }
+          snapBackToTop();
           return;
         }
+
         // user has scrolled, so we secretly adjust the scroll wihtout them knowing
         scrollContainer.scrollTo({
           top: scrollOffest - remaindingOffset,
@@ -239,39 +269,20 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   }, [drawerY, transition]);
 
   const touchMovement = useMemo(() => new MovementTracker(), []);
-  const getComputedYTranslate = (elm: HTMLElement) => {
-    // to work with translate 3d we need to extract the position via the matrix
-    const computedStyle = getComputedStyle(elm);
-
-    // css matrix notation looks something like this:
-    // matrix(1, 0, 0, 1, 0, 204.453)
-    //
-    // SEE: https://developer.mozilla.org/en-US/docs/Web/CSS/transform-function/matrix
-    const positionComponents = computedStyle.transform
-      .substring("matrix(".length - 1, computedStyle.transform.length - 1) // remove the brackets and function
-      .split(",")
-      .map(parseFloat) // [0, 0, 0 , 1, 0, 204.453]
-      .slice(-2); // extract the position component
-
-    return positionComponents[1]; // the y component
-  };
-
-  // const prev = useRef(0);
-  // useAnimationFrame(() => {
-  //   const curr = performance.now();
-  //   const diff = curr - prev.current;
-  //   console.log(diff);
-  //   prev.current = curr;
-  // });
 
   const easeFunc = useMemo(() => cubicBezier(0.35, 0.79, 0.23, 1), []);
+  const hasActiveTransiton = useHasActiveTransition(drawerRef);
+
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
+      isTouching.current = true;
+
       if (scrollCompensateTimeoutRef.current)
         clearTimeout(scrollCompensateTimeoutRef.current);
 
       const elm = drawerRef.current;
-      const currentY = getComputedYTranslate(elm);
+      const computedStyle = getComputedStyle(elm);
+      const currentY = getTranslateY(computedStyle);
       const touchY = e.touches[0].clientY;
 
       // reject touches that outside of the drawer panel
@@ -281,49 +292,35 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       }
 
       if (!isNaN(currentY)) {
-        // on mobile, because of performance constraint, you cant' really
-        // calculate the translateY and apply to the offsetY.
-        // It will resulted a y position that is a frame before.
-        //
-        //
-        // the lag compensation create the illusion of catching the sheet.
-        // const lagCompensationOffset = 40;
-
-        // const lagCompensationFactor = 100;
+        // on mobile, because of performance constraint, it throttles the reading of
+        // computed translate y. The lag resulting a y position that is (roughly) a frame before.
         const previous = drawerY.getPrevious() || drawerY.get();
 
         // yMotion is NOT velocity, because input could be descrete, beginning and ending of motion
-        const yMotionDist = drawerY.get() - previous;
+        const yDist = drawerY.get() - previous;
 
-        // find the delta at the frame after
-        const t = (currentY - previous) / yMotionDist;
-        const delta = easeFunc(t + 0.1) - easeFunc(t);
+        const elapsedTime = performance.now() - drawerYLastUpdate.current;
+        const duration = getTransitionDurationSeconds(computedStyle);
+        const stepSize = 0.18; // how much does it look forward to compensate
+        const animProg = easeFunc(elapsedTime / (duration * 1000) + stepSize);
+        const inferredPosition = -yDist * (1 - animProg);
 
-        // const direction = yDelta > 0 ? -1 : 1;
-        const lagCompensationOffset =
-          (-yMotionDist * delta * 100) / window.innerHeight;
+        if (hasActiveTransiton.get()) {
+          const clamped = clamp(0, window.innerHeight, inferredPosition);
 
-        console.log("drawery", drawerY.getPrevious());
-        console.log(delta);
-
-        // console.log("current", drawerY.get());
-        // console.log("yDelta", yDelta);
-        // console.log("lag compensation offset", lagCompensationOffset);
-
-        const clamped = clamp(
-          0,
-          window.innerHeight,
-          currentY - lagCompensationOffset,
-        );
-
-        transition.set("instant");
-        drawerY.set(clamped);
+          transition.set("instant");
+          drawerY.set(clamped, true);
+        } else {
+          const clamped = clamp(0, window.innerHeight, currentY);
+          transition.set("instant");
+          drawerY.set(clamped, true);
+        }
       }
 
-      isTouching.current = true;
+      touchMovement.reset();
       touchMovement.track(touchY);
     },
-    [touchMovement, drawerY, easeFunc, transition],
+    [touchMovement, drawerY, easeFunc, hasActiveTransiton, transition],
   );
 
   const handleTouchMove = useCallback(
@@ -360,18 +357,19 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       }
 
       const touchOffset = gestureInitialStateRef.current.y - touchY;
+      const resistence = touchOffset * dismissResistence;
 
       // update the offest here
       const newY = clamp(
         0,
         window.innerHeight,
-        gestureInitialStateRef.current.drawerOffsetY - touchOffset,
+        gestureInitialStateRef.current.drawerOffsetY - touchOffset + resistence,
       );
 
       // render it to the dom
       drawerY.set(newY);
     },
-    [contentScrollY, transition, drawerY, touchMovement],
+    [touchMovement, contentScrollY, drawerY, dismissResistence, transition],
   );
 
   const handleTouchEnd = useCallback(() => {
@@ -379,7 +377,8 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     gestureInitialStateRef.current = null;
     isTouching.current = false;
 
-    // return if the user have reset
+    // trigger the compensation sequence if part of the
+    // scroll is done by body scrolling
     if (contentScrollY.get() > 0) {
       compensateScrollDebounced();
       return;
@@ -459,7 +458,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
   return (
     <div
-      className="fixed inset-0 overflow-y-scroll overscroll-none"
+      className="select-none fixed inset-0 overflow-y-scroll overscroll-none"
       ref={touchTargetRef}
       // HACK:
       // put the touch detection at a stationary div
@@ -472,7 +471,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
     >
       <div
         ref={drawerRef}
-        className="absolute will-change-transform  bg-blue-800 transition-(--transition) duration-(--duration) ease-(--easing)"
+        className="absolute top-6 rounded-t-2xl will-change-transform  bg-blue-800 transition-(--transition) duration-(--duration) ease-(--easing)"
       >
         <div className="flex w-full items-center justify-center py-2">
           <div className={"h-1 w-12 bg-red-600"} />
@@ -481,4 +480,70 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       </div>
     </div>
   );
+}
+
+const getTransitionDurationSeconds = (computedStyle: CSSStyleDeclaration) => {
+  const durationStr = computedStyle.transitionDuration;
+  return durationStr.includes("ms")
+    ? parseFloat(durationStr) / 1000
+    : parseFloat(durationStr);
+};
+const getTranslateY = (computedStyle: CSSStyleDeclaration) => {
+  // css matrix notation looks something like this:
+  // matrix(1, 0, 0, 1, 0, 204.453)
+  //
+  // SEE: https://developer.mozilla.org/en-US/docs/Web/CSS/transform-function/matrix
+  const positionComponents = computedStyle.transform
+    .substring("matrix(".length - 1, computedStyle.transform.length - 1) // remove the brackets and function
+    .split(",")
+    .map(parseFloat) // [0, 0, 0 , 1, 0, 204.453]
+    .slice(-2); // extract the position component
+
+  return positionComponents[1]; // the y component
+};
+
+function useHasActiveTransition<T extends HTMLElement>(ref: RefObject<T>) {
+  const hasActiveTransition = useObservableValue(false);
+
+  useEffect(() => {
+    const elm = ref.current;
+    if (!elm) return;
+
+    const start = () => {
+      hasActiveTransition.set(true);
+    };
+    const end = () => {
+      hasActiveTransition.set(false);
+    };
+
+    elm.addEventListener("transitionrun", start);
+    elm.addEventListener("transitionstart", start);
+    elm.addEventListener("transitionend", end);
+    elm.addEventListener("transitioncancel", end);
+
+    return () => {
+      elm.removeEventListener("transitionrun", start);
+      elm.removeEventListener("transitionstart", start);
+      elm.removeEventListener("transitionend", end);
+      elm.removeEventListener("transitioncancel", end);
+    };
+  }, [hasActiveTransition, ref]);
+
+  return hasActiveTransition;
+}
+
+function executeEventListenerOnce<
+  T extends HTMLElement,
+  K extends keyof HTMLElementEventMap,
+>(
+  element: T,
+  type: K,
+  listener: (this: T, ev: HTMLElementEventMap[K]) => void,
+  options?: boolean | AddEventListenerOptions,
+): void {
+  const handler = (e: HTMLElementEventMap[K]) => {
+    listener.call(element, e);
+    element.removeEventListener(type, handler, options);
+  };
+  element.addEventListener(type, handler, options);
 }
