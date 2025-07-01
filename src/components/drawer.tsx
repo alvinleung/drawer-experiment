@@ -10,7 +10,7 @@ import {
   useRef,
 } from "react";
 import { createSpring, createSpringTimingFunction } from "./spring-motion";
-import { velocityPerSecond } from "framer-motion";
+import { cubicBezier, velocityPerSecond } from "framer-motion";
 import { MovementTracker } from "./movement-tracker";
 import {
   useObserveScroll,
@@ -20,7 +20,6 @@ import {
 import React from "react";
 import { usePresence } from "./presence";
 import "./log";
-
 const clamp = (min: number, max: number, value: number) =>
   Math.max(min, Math.min(max, value));
 
@@ -164,7 +163,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
     // use ease out quint for a quick but smoother motion
     if (latest === "exit") {
-      sheet.style.setProperty("--duration", `.35s`);
+      sheet.style.setProperty("--duration", `.45s`);
       sheet.style.setProperty("--easing", `cubic-bezier(0.22, 1, 0.36, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
@@ -265,6 +264,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
   //   prev.current = curr;
   // });
 
+  const easeFunc = useMemo(() => cubicBezier(0.35, 0.79, 0.23, 1), []);
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       if (scrollCompensateTimeoutRef.current)
@@ -291,13 +291,24 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
 
         const lagCompensationFactor = 100;
         const previous = drawerY.getPrevious() || drawerY.get();
-        const yDelta = drawerY.get() - previous; // yDelta is NOT velocity, because input could be descrete
+
+        // yMotion is NOT velocity, because input could be descrete, beginning and ending of motion
+        const yMotionDist = drawerY.get() - previous;
+
+        // find the delta at the frame after
+        const t = (currentY - previous) / yMotionDist;
+        const delta = easeFunc(t + 0.1) - easeFunc(t);
+
         // const direction = yDelta > 0 ? -1 : 1;
         const lagCompensationOffset =
-          (lagCompensationFactor * -yDelta) / window.innerHeight;
-        console.log("current", drawerY.get());
-        console.log("yDelta", yDelta);
-        console.log("lag compensation offset", lagCompensationOffset);
+          (-yMotionDist * delta * 100) / window.innerHeight;
+
+        console.log("drawery", drawerY.getPrevious());
+        console.log(delta);
+
+        // console.log("current", drawerY.get());
+        // console.log("yDelta", yDelta);
+        // console.log("lag compensation offset", lagCompensationOffset);
 
         const clamped = clamp(
           0,
@@ -312,7 +323,7 @@ export function Drawer({ children, onDismiss }: DrawerProps) {
       isTouching.current = true;
       touchMovement.track(touchY);
     },
-    [transition, drawerY, touchMovement],
+    [touchMovement, drawerY, easeFunc, transition],
   );
 
   const handleTouchMove = useCallback(
