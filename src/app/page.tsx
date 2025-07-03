@@ -6,10 +6,11 @@ import { useState } from "react";
 
 export default function DrawerPage() {
   const [isShowingDrawer, setIsShowingDrawer] = useState(false);
+
   return (
     <div className={``}>
       <button
-        className="p-8 bg-gray-700 rounded-2xl "
+        className="p-8 bg-gray-700 rounded-2xl"
         onClick={() => {
           setIsShowingDrawer(true);
         }}
