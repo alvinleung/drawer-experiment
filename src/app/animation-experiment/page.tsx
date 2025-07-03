@@ -6,7 +6,7 @@ import { animation } from "./animation-utils";
 
 export default function AnimationExperiment() {
   const ref = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
-  const [val, setVal] = useState("");
+  const [val] = useState("");
 
   useEffect(() => {
     const elm = ref.current;
@@ -42,19 +42,6 @@ export default function AnimationExperiment() {
     </div>
   );
 }
-const getTranslateX = (computedStyle: CSSStyleDeclaration) => {
-  // css matrix notation looks something like this:
-  // matrix(1, 0, 0, 1, 0, 204.453)
-  //
-  // SEE: https://developer.mozilla.org/en-US/docs/Web/CSS/transform-function/matrix
-  const positionComponents = computedStyle.transform
-    .substring("matrix(".length - 1, computedStyle.transform.length - 1) // remove the brackets and function
-    .split(",")
-    .map(parseFloat) // [0, 0, 0 , 1, 0, 204.453]
-    .slice(-2); // extract the position component
-
-  return positionComponents[1]; // the y component
-};
 
 /* function Animated({
   animate,
