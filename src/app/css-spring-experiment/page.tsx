@@ -1,6 +1,6 @@
 "use client";
 
-import { createSpring } from "@/components/spring-motion";
+import { createSpring } from "@/components/drawer/spring-motion";
 import { RefObject, useCallback, useEffect, useMemo, useRef } from "react";
 
 /*
