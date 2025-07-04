@@ -1,3 +1,4 @@
+import next from "next";
 import React, {
   createContext,
   isValidElement,
@@ -91,6 +92,13 @@ export function AnimatePresence({ children }: PropsWithChildren) {
     setOutputChildren(nextOutputChildren);
 
     // return early to refresh the output list
+    return null;
+  }
+
+  // when the children changed, but the presence remained the same,
+  // we simply update the children
+  if (outputChildren !== nextChildren) {
+    setOutputChildren(nextChildren);
     return null;
   }
 
