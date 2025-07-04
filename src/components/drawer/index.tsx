@@ -101,8 +101,6 @@ export function Drawer({
       if (isPerformingBounceRef.current) return;
       isPerformingBounceRef.current = true;
 
-      const before = performance.now();
-
       // trigger artificial overscroll bounce base on scroll velocity
       const spring = createSpring({
         // damping: 32, // default: 26
@@ -115,7 +113,6 @@ export function Drawer({
 
       const overscrollBounceTimingFunction = createSpringTimingFunction(spring);
       const duration = spring.duration * 1000;
-      console.log("time", performance.now() - before);
 
       // It requires to slightly delay the animation execuation
       // in order to reliably perform the animation
