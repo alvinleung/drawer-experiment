@@ -1,4 +1,4 @@
-import { ObservableValue } from "./drawer/observable-value";
+import { ObservableValue } from "./animation/observable-value";
 
 type Transition = {
   duration: number;
