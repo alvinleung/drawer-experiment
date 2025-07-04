@@ -1,6 +1,9 @@
 import { RefObject, useEffect } from "react";
 import { useObservableValue } from "./observable-value";
 
+export const clamp = (min: number, max: number, value: number) =>
+  Math.max(min, Math.min(max, value));
+
 export const getTransitionDurationSeconds = (
   computedStyle: CSSStyleDeclaration,
 ) => {

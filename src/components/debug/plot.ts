@@ -1,7 +1,7 @@
 const allPlots: Record<string, Graph> = {};
 let basePlotElm: HTMLDivElement;
 
-export function plot(key: string, value: number) {
+export function plot(key: string, value: number, scaleX = 1, scaleY = 1) {
   if (!basePlotElm) {
     basePlotElm = document.createElement("div");
     Object.assign(basePlotElm.style, {
@@ -13,7 +13,7 @@ export function plot(key: string, value: number) {
     document.body.appendChild(basePlotElm);
   }
   if (!allPlots[key]) {
-    allPlots[key] = new Graph(key);
+    allPlots[key] = new Graph(key, 120, 40, scaleX, scaleY);
     basePlotElm.appendChild(allPlots[key].canvas);
   }
   const plot = allPlots[key];
@@ -25,8 +25,16 @@ class Graph {
   private context: CanvasRenderingContext2D;
   private points: number[] = [];
   private graphName: string;
+  private xStep: number;
+  private yStep: number;
 
-  constructor(name: string, width: number = 120, height: number = 40) {
+  constructor(
+    name: string,
+    width: number = 120,
+    height: number = 40,
+    scaleX = 1,
+    scaleY = 1,
+  ) {
     this.graphName = name;
     this.canvas = document.createElement("canvas");
     this.canvas.width = width;
@@ -37,6 +45,8 @@ class Graph {
 
     this.canvas.style.border = "1px solid #444";
     this.context = context;
+    this.xStep = 5 * scaleX;
+    this.yStep = 5 * scaleY;
   }
 
   plot(value: number) {
@@ -59,7 +69,9 @@ class Graph {
     return [min, max];
   }
 
-  private drawGrid(xStep: number, yStep: number) {
+  private drawGrid() {
+    const xStep = this.xStep;
+    const yStep = this.yStep;
     const ctx = this.context;
     const width = this.canvas.width;
     const height = this.canvas.height;
@@ -84,7 +96,8 @@ class Graph {
     }
   }
 
-  render(xStep = 5, yStep = 5) {
+  render() {
+    const xStep = this.xStep;
     const ctx = this.context;
     const width = this.canvas.width;
     const height = this.canvas.height;
@@ -94,7 +107,7 @@ class Graph {
     ctx.fillRect(0, 0, width, height);
 
     // Grid
-    this.drawGrid(xStep, yStep);
+    this.drawGrid();
 
     const maxVisiblePoints = Math.floor(width / xStep);
     const visiblePoints = this.points.slice(-maxVisiblePoints);

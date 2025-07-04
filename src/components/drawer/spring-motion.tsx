@@ -44,7 +44,7 @@ export function createSpringSolver({
   const duration = (() => {
     const step = 1 / 6;
     let time = 0;
-    const RESTING_THRESHOLD = 0.0001;
+    const RESTING_THRESHOLD = 0.1;
     while (true) {
       // this is where you can change the stopping precision
       if (Math.abs(1 - solver(time)) < RESTING_THRESHOLD) {
@@ -74,7 +74,8 @@ export function createSpringTimingFunction(
   // trace out each step to build the css linea timing function
   for (let i = 0; i < stepCount - 1; i++) {
     const progress = i / (stepCount - 1);
-    steps.push({ value: solve(progress * duration), progress });
+    const value = solve(progress * duration);
+    steps.push({ value, progress });
   }
 
   // add the last step to make sure it step on 1

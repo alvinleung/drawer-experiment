@@ -21,13 +21,12 @@ import React from "react";
 import { usePresence } from "./presence";
 import "../debug/log";
 import {
+  clamp,
   executeEventListenerOnce,
   getTransitionDurationSeconds,
   getTranslateY,
   useHasActiveTransition,
 } from "./utils";
-const clamp = (min: number, max: number, value: number) =>
-  Math.max(min, Math.min(max, value));
 
 interface DrawerProps extends PropsWithChildren {
   dismissResistence?: number;
@@ -38,8 +37,8 @@ interface DrawerProps extends PropsWithChildren {
 export function Drawer({
   children,
   onDismiss,
-  dismissResistence = 0.52,
-  commitThreshold = 0.75,
+  dismissResistence = 0.55,
+  commitThreshold = 0.8,
 }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
   const touchTargetRef = useRef<HTMLDivElement>(
@@ -102,13 +101,14 @@ export function Drawer({
       const spring = createSpring({
         // damping: 32, // default: 26
         // stiffness: 200, // default: 170
-        stiffness: 200, // default: 170
+        stiffness: 130, // default: 170
         damping: 26, // default: 26
         mass: 1,
         velocity: -prevFrameScrollVelocityRef.current,
       });
 
       const overscrollBounceTimingFunction = createSpringTimingFunction(spring);
+      const duration = spring.duration * 1000;
 
       // It requires to slightly delay the animation execuation
       // in order to reliably perform the animation
@@ -124,7 +124,7 @@ export function Drawer({
             },
           ],
           {
-            duration: spring.duration * 2000,
+            duration,
             easing: overscrollBounceTimingFunction,
             fill: "forwards",
             iterations: 1,
