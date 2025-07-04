@@ -66,7 +66,7 @@ export function createSpringSolver({
 
 export function createSpringTimingFunction(
   solver: SpringSolver,
-  stepCount = 32,
+  stepCount = 24,
 ) {
   const { solve, duration } = solver;
   const steps: { value: number; progress: number }[] = [];

@@ -1,7 +1,7 @@
 "use client";
 
+import { AnimatePresence } from "@/components/animation/presence";
 import { Drawer } from "@/components/drawer";
-import { AnimatePresence } from "@/components/drawer/presence";
 import { useState } from "react";
 
 export default function DrawerPage() {

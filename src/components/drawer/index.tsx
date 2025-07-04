@@ -9,16 +9,8 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { createSpring, createSpringTimingFunction } from "./spring-motion";
-import { cubicBezier, velocityPerSecond } from "framer-motion";
 import { MovementTracker } from "./movement-tracker";
-import {
-  useObserveScroll,
-  useObservableValue,
-  useObserve,
-} from "./observable-value";
 import React from "react";
-import { usePresence } from "./presence";
 import "../debug/log";
 import {
   clamp,
@@ -27,6 +19,17 @@ import {
   getTranslateY,
   useHasActiveTransition,
 } from "./utils";
+import {
+  useObservableValue,
+  useObserve,
+  useObserveScroll,
+} from "../animation/observable-value";
+import {
+  createSpring,
+  createSpringTimingFunction,
+} from "../animation/spring-motion";
+import { cubicBezier } from "../animation/cubic-bezier";
+import { usePresence } from "../animation/presence";
 
 interface DrawerProps extends PropsWithChildren {
   dismissResistence?: number;
@@ -76,7 +79,8 @@ export function Drawer({
         (contentScrollY.getPrevious() || contentScrollY.get()) -
         contentScrollY.get();
 
-      const velocity = velocityPerSecond(movementDelta, timeDelta);
+      // velocity per second
+      const velocity = movementDelta * (1000 / timeDelta);
 
       // trigger the scroll bounce 1 step earlier than scroll reaching zero
       // to create the illusion of continuous motion on mobile. Without this, there is
@@ -97,6 +101,8 @@ export function Drawer({
       if (isPerformingBounceRef.current) return;
       isPerformingBounceRef.current = true;
 
+      const before = performance.now();
+
       // trigger artificial overscroll bounce base on scroll velocity
       const spring = createSpring({
         // damping: 32, // default: 26
@@ -109,6 +115,7 @@ export function Drawer({
 
       const overscrollBounceTimingFunction = createSpringTimingFunction(spring);
       const duration = spring.duration * 1000;
+      console.log("time", performance.now() - before);
 
       // It requires to slightly delay the animation execuation
       // in order to reliably perform the animation
