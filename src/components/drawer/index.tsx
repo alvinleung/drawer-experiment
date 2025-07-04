@@ -38,7 +38,7 @@ interface DrawerProps extends PropsWithChildren {
 export function Drawer({
   children,
   onDismiss,
-  dismissResistence = 0.4,
+  dismissResistence = 0.52,
   commitThreshold = 0.75,
 }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;

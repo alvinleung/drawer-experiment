@@ -6,7 +6,7 @@ type Transition = {
   delay: number;
 };
 
-function areTransitionsEqual(t1: Transition, t2: Transition) {
+export function areTransitionsEqual(t1: Transition, t2: Transition) {
   return (
     t1.ease === t2.ease && t1.delay === t2.delay && t1.duration === t2.duration
   );
@@ -95,6 +95,7 @@ export class AnimationValue<T, E extends HTMLElement> {
 
   private handleTransitionEnd() {
     this.transitioning = false;
+    console.log(this.transitioning);
   }
 
   animate(value: T, transition?: Partial<Transition>) {
@@ -103,7 +104,9 @@ export class AnimationValue<T, E extends HTMLElement> {
     }
 
     return new Promise((resolve, reject) => {
+      resolve(true);
       this.value.set(value);
+      reject(false);
     });
   }
 
