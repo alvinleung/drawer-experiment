@@ -37,7 +37,7 @@ function parseContentString(content: unknown): string {
   return JSON.stringify(content as object);
 }
 
-const AUTO_HIDE = false;
+const AUTO_HIDE = true;
 const HIDE_TIMEOUT = 2000;
 let hideTimeout: ReturnType<typeof setTimeout> | undefined;
 let scrollToLatest = true;

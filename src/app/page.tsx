@@ -6,6 +6,7 @@ import { useSnapPoint } from "@/components/drawer/snap";
 import { useState } from "react";
 
 const points = ["200px", 1];
+// const points = [1];
 
 export default function DrawerPage() {
   const [isShowingDrawer, setIsShowingDrawer] = useState(false);

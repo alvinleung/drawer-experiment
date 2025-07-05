@@ -36,8 +36,8 @@ export function resolveSnapPoint(
   );
 
   let lowerIndex = -1;
+  let lowerDist = window.innerHeight;
   let upperIndex = sortedPoints.length - 1;
-  let lowerDist = 0;
   let upperDist = getSnapPointPixelY(sortedPoints[sortedPoints.length - 1]);
 
   for (let i = 0; i < sortedPoints.length - 1; i++) {

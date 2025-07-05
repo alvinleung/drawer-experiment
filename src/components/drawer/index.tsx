@@ -11,7 +11,7 @@ import {
 } from "react";
 import { MovementTracker } from "./movement-tracker";
 import React from "react";
-// import "../debug/log";
+import "../debug/log";
 import {
   clamp,
   executeEventListenerOnce,
@@ -34,7 +34,6 @@ import { getSnapPointPixelY, resolveSnapPoint, SnapPointControl } from "./snap";
 
 interface DrawerProps extends PropsWithChildren {
   dismissResistence?: number;
-  commitThreshold?: number;
   onDismiss?: () => void;
   snapControl: SnapPointControl;
 }
@@ -42,14 +41,29 @@ interface DrawerProps extends PropsWithChildren {
 export function Drawer({
   children,
   onDismiss,
-  dismissResistence = 0.5,
-  commitThreshold = 0.8,
+  dismissResistence = 0.6,
   snapControl,
 }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
+  const heightHolderRef = useRef<HTMLDivElement>(
+    null,
+  ) as RefObject<HTMLDivElement>;
   const touchTargetRef = useRef<HTMLDivElement>(
     null,
   ) as RefObject<HTMLDivElement>;
+
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    const resizeOserver = new ResizeObserver(() => {
+      const height = drawer.getBoundingClientRect().height;
+      if (!heightHolderRef.current) return;
+      heightHolderRef.current.style.height = height + "px";
+    });
+    resizeOserver.observe(drawer);
+    return () => {
+      resizeOserver.disconnect();
+    };
+  }, []);
 
   const contentScrollY = useObserveScroll(touchTargetRef);
   const gestureInitialStateRef = useRef<null | {
@@ -170,7 +184,6 @@ export function Drawer({
       // sheet.style.setProperty("--easing", `${defaultSpring.timingFunction}`);
 
       // use cubic bezier for better performance
-      // sheet.style.setProperty("--duration", `2s`);
       sheet.style.setProperty("--duration", `.5s`);
 
       // ease out quint is the closet to the spring easing curve
@@ -415,7 +428,9 @@ export function Drawer({
         return;
       }
 
-      // we initiate the gesture if it hasn't been initiated
+      // We initiate the gesture if it hasn't been initiated
+      // Initiation is done here because invalid drag gesture may become
+      // valid in the middle of the touch press
       if (!gestureInitialStateRef.current) {
         gestureInitialStateRef.current = {
           y: e.touches[0].clientY,
@@ -426,7 +441,13 @@ export function Drawer({
       }
 
       const touchOffset = gestureInitialStateRef.current.y - touchY;
-      const resistence = touchOffset * dismissResistence;
+
+      const isDraggingDown = touchOffset < 0;
+      const isFirstSnapPoint = snapControl.currentIndex === 0;
+      const shouldApplyResistence = isFirstSnapPoint && isDraggingDown ? 1 : 0;
+
+      const resistence =
+        touchOffset * dismissResistence * shouldApplyResistence;
 
       const newPosition =
         gestureInitialStateRef.current.drawerOffsetY - touchOffset + resistence;
@@ -435,7 +456,14 @@ export function Drawer({
       // render it to the dom
       drawerY.set(clampedNewPosition);
     },
-    [touchMovement, contentScrollY, drawerY, dismissResistence, transition],
+    [
+      touchMovement,
+      contentScrollY,
+      drawerY,
+      snapControl.currentIndex,
+      dismissResistence,
+      transition,
+    ],
   );
 
   const handleTouchEnd = useCallback(() => {
@@ -444,6 +472,13 @@ export function Drawer({
     isTouching.current = false;
 
     const velocitySmoothed = touchMovement.calculateVelocity(3);
+
+    // trigger the compensation sequence if part of the
+    // scroll is done by body scrolling
+    if (contentScrollY.get() > 0) {
+      compensateScrollDebounced();
+      return;
+    }
 
     // resolve the gesture using snap point if the user uses snap point
     const snap = resolveSnapPoint(
@@ -457,12 +492,6 @@ export function Drawer({
       return;
     }
 
-    // trigger the compensation sequence if part of the
-    // scroll is done by body scrolling
-    if (contentScrollY.get() > 0) {
-      compensateScrollDebounced();
-      return;
-    }
     snapControl.navigateToIndex(snap.index);
   }, [
     contentScrollY,
@@ -479,20 +508,22 @@ export function Drawer({
   useLayoutEffect(() => {
     transition.set("instant");
     drawerY.set(window.innerHeight);
-    drawerRef.current.focus();
   }, [drawerY, transition]);
 
   useEffect(() => {
     const sheet = drawerRef.current;
-    transition.set("default");
 
     if (isPresent) {
+      transition.set("default");
       // needs a slight delay so the enter animation can be reset to zero
       requestAnimationFrame(() => {
         const point = snapControl.snapPoints[snapControl.currentIndex];
         const pixelY = getSnapPointPixelY(point);
         drawerY.set(window.innerHeight - pixelY);
-        return;
+
+        const isLastSnapPoint =
+          snapControl.currentIndex === snapControl.snapPoints.length - 1;
+        canScroll.set(isLastSnapPoint);
       });
       return;
     }
@@ -502,14 +533,19 @@ export function Drawer({
       drawerY.set(window.innerHeight, true);
     });
 
-    const remove = () => {
-      safeToRemove();
-    };
-    sheet.addEventListener("transitionend", remove);
+    sheet.addEventListener("transitionend", safeToRemove);
     return () => {
-      sheet.removeEventListener("transitionend", remove);
+      sheet.removeEventListener("transitionend", safeToRemove);
     };
-  }, [drawerY, isPresent, transition, safeToRemove, onDismiss, snapControl]);
+  }, [
+    drawerY,
+    isPresent,
+    transition,
+    safeToRemove,
+    onDismiss,
+    snapControl,
+    canScroll,
+  ]);
 
   // because we are using an invisible touch target at the background
   // to track finger gesture, it sits on top of the body, blocking all interactions.
@@ -524,7 +560,7 @@ export function Drawer({
 
   return (
     <div
-      className="select-none fixed inset-0 overflow-y-scroll overscroll-none no-scrollbar transition-colors"
+      className="select-none fixed inset-0 overscroll-none transition-colors"
       ref={touchTargetRef}
       // HACK:
       // put the touch detection at a stationary div
@@ -537,15 +573,17 @@ export function Drawer({
         onDismiss?.();
       }}
     >
-      <div
-        ref={drawerRef}
-        onClickCapture={(e) => e.stopPropagation()}
-        className="absolute top-6 rounded-t-2xl will-change-transform  bg-gray-700 transition-(--transition) duration-(--duration) ease-(--easing)"
-      >
-        <div className="flex w-full items-center justify-center py-2">
-          <div className={"h-1 w-12 bg-red-600"} />
+      <div ref={heightHolderRef} className="overflow-clip">
+        <div
+          ref={drawerRef}
+          onClickCapture={(e) => e.stopPropagation()}
+          className="absolute top-6 rounded-t-2xl will-change-transform  bg-gray-700 transition-(--transition) duration-(--duration) ease-(--easing)"
+        >
+          <div className="flex w-full items-center justify-center py-2">
+            <div className={"h-1 w-12 bg-red-600"} />
+          </div>
+          {children}
         </div>
-        {children}
       </div>
     </div>
   );
