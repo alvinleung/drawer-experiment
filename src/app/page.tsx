@@ -2,10 +2,15 @@
 
 import { AnimatePresence } from "@/components/animation/presence";
 import { Drawer } from "@/components/drawer";
+import { useSnapPoint } from "@/components/drawer/snap";
 import { useState } from "react";
+
+const points = ["200px", 1];
 
 export default function DrawerPage() {
   const [isShowingDrawer, setIsShowingDrawer] = useState(false);
+
+  const snap = useSnapPoint(points);
 
   return (
     <div className={``}>
@@ -24,6 +29,7 @@ export default function DrawerPage() {
         {isShowingDrawer && (
           <Drawer
             key={"drawer"}
+            snapControl={snap}
             onDismiss={() => {
               setIsShowingDrawer(false);
             }}

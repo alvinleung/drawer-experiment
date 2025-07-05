@@ -55,7 +55,6 @@ export class ObservableValue<T> {
 
     this.prevValue = this.value;
     this.value = value;
-
     for (const changeHandler of this.listeners) {
       changeHandler(this.value);
     }

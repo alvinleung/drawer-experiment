@@ -11,7 +11,7 @@ import {
 } from "react";
 import { MovementTracker } from "./movement-tracker";
 import React from "react";
-import "../debug/log";
+// import "../debug/log";
 import {
   clamp,
   executeEventListenerOnce,
@@ -30,18 +30,21 @@ import {
 } from "../animation/spring-motion";
 import { cubicBezier } from "../animation/cubic-bezier";
 import { usePresence } from "../animation/presence";
+import { getSnapPointPixelY, resolveSnapPoint, SnapPointControl } from "./snap";
 
 interface DrawerProps extends PropsWithChildren {
   dismissResistence?: number;
   commitThreshold?: number;
   onDismiss?: () => void;
+  snapControl: SnapPointControl;
 }
 
 export function Drawer({
   children,
   onDismiss,
-  dismissResistence = 0.55,
+  dismissResistence = 0.5,
   commitThreshold = 0.8,
+  snapControl,
 }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
   const touchTargetRef = useRef<HTMLDivElement>(
@@ -142,6 +145,19 @@ export function Drawer({
     },
     false,
   );
+  // =================================================================
+  // Scroll control
+  // =================================================================
+  const canScroll = useObservableValue(false);
+  useObserve(canScroll, (latest) => {
+    if (latest) {
+      touchTargetRef.current.style.overflowY = "scroll";
+      return;
+    }
+    // Uses "visible" instead of "hidden" to lock scroll. This  will
+    // make sure the browser is ready to render the clipped part of the content
+    touchTargetRef.current.style.overflowY = "visible";
+  });
 
   // =================================================================
   // transition definitions
@@ -177,7 +193,7 @@ export function Drawer({
 
     // use ease out quint for a quick but smoother motion
     if (latest === "exit") {
-      sheet.style.setProperty("--duration", `.38s`);
+      sheet.style.setProperty("--duration", `.4s`);
       sheet.style.setProperty("--easing", `cubic-bezier(0.25, 1, 0.5, 1)`);
       sheet.style.setProperty("--transition", `all`);
       return;
@@ -311,7 +327,7 @@ export function Drawer({
         const previous = drawerY.getPrevious() || drawerY.get();
 
         // yMotion is NOT velocity, it is decrete beginning and end of the motion
-        const yDist = drawerY.get() - previous;
+        const yOffset = drawerY.get() - previous;
 
         const elapsedTime = performance.now() - drawerYLastUpdate.current;
         const duration = getTransitionDurationSeconds(computedStyle);
@@ -319,7 +335,7 @@ export function Drawer({
         const animProg = defaultEaseFunc(
           elapsedTime / (duration * 1000) + speculationAmount,
         );
-        const speculatedPosition = -yDist * (1 - animProg);
+        const speculatedPosition = previous + yOffset * animProg;
         return speculatedPosition;
       }
 
@@ -396,7 +412,6 @@ export function Drawer({
       // reject touches that outside of the drawer panel
       // (we are using a dedicated fixed div to detect touch)
       if (touchY < drawerY.get()) {
-        // e.preventDefault();
         return;
       }
 
@@ -428,46 +443,32 @@ export function Drawer({
     gestureInitialStateRef.current = null;
     isTouching.current = false;
 
+    const velocitySmoothed = touchMovement.calculateVelocity(3);
+
+    // resolve the gesture using snap point if the user uses snap point
+    const snap = resolveSnapPoint(
+      snapControl.snapPoints,
+      drawerY.get(),
+      velocitySmoothed,
+    );
+
+    if (!snap) {
+      onDismiss?.();
+      return;
+    }
+
     // trigger the compensation sequence if part of the
     // scroll is done by body scrolling
     if (contentScrollY.get() > 0) {
       compensateScrollDebounced();
       return;
     }
-
-    // figure out the snapping
-    const isOverCommitThreshold =
-      (window.innerHeight - drawerY.get()) / window.innerHeight <
-      commitThreshold;
-
-    const velocitySmoothed = touchMovement.calculateVelocity(3);
-    const isFlick = velocitySmoothed > 10;
-    const isCancelDirection = velocitySmoothed < 0;
-
-    if ((isOverCommitThreshold && !isCancelDirection) || isFlick) {
-      // enable motion
-      //
-      // like bounce, the animation starts a frame later to make sure
-      // motion is set to "interpolates" to trigger a smooth animation
-      transition.set("exit");
-      requestAnimationFrame(() => {
-        drawerY.set(window.innerHeight);
-      });
-      onDismiss?.();
-      return;
-    }
-
-    // same as above
-    transition.set("enter");
-    requestAnimationFrame(() => {
-      drawerY.set(0);
-    });
+    snapControl.navigateToIndex(snap.index);
   }, [
     contentScrollY,
     drawerY,
-    commitThreshold,
     touchMovement,
-    transition,
+    snapControl,
     compensateScrollDebounced,
     onDismiss,
   ]);
@@ -483,22 +484,32 @@ export function Drawer({
 
   useEffect(() => {
     const sheet = drawerRef.current;
+    transition.set("default");
 
     if (isPresent) {
       // needs a slight delay so the enter animation can be reset to zero
       requestAnimationFrame(() => {
-        transition.set("default");
-        drawerY.set(0);
+        const point = snapControl.snapPoints[snapControl.currentIndex];
+        const pixelY = getSnapPointPixelY(point);
+        drawerY.set(window.innerHeight - pixelY);
+        return;
       });
       return;
     }
-    drawerY.set(window.innerHeight);
 
-    sheet.addEventListener("transitionend", safeToRemove);
-    return () => {
-      sheet.removeEventListener("transitionend", safeToRemove);
+    transition.set("exit");
+    requestAnimationFrame(() => {
+      drawerY.set(window.innerHeight, true);
+    });
+
+    const remove = () => {
+      safeToRemove();
     };
-  }, [drawerY, isPresent, transition, safeToRemove]);
+    sheet.addEventListener("transitionend", remove);
+    return () => {
+      sheet.removeEventListener("transitionend", remove);
+    };
+  }, [drawerY, isPresent, transition, safeToRemove, onDismiss, snapControl]);
 
   // because we are using an invisible touch target at the background
   // to track finger gesture, it sits on top of the body, blocking all interactions.
@@ -513,12 +524,11 @@ export function Drawer({
 
   return (
     <div
-      className="select-none fixed inset-0 overflow-y-scroll overscroll-none no-scrollbar bg-(--scrim-color) transition-colors"
+      className="select-none fixed inset-0 overflow-y-scroll overscroll-none no-scrollbar transition-colors"
       ref={touchTargetRef}
       // HACK:
       // put the touch detection at a stationary div
       // because the browser seems to be unable to catch up with the animation hit box
-      //
       // it fails to register touch when the drawer sheet is beginning out of the screen
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
@@ -530,7 +540,7 @@ export function Drawer({
       <div
         ref={drawerRef}
         onClickCapture={(e) => e.stopPropagation()}
-        className="absolute top-6 rounded-t-2xl will-change-transform  bg-blue-800 transition-(--transition) duration-(--duration) ease-(--easing)"
+        className="absolute top-6 rounded-t-2xl will-change-transform  bg-gray-700 transition-(--transition) duration-(--duration) ease-(--easing)"
       >
         <div className="flex w-full items-center justify-center py-2">
           <div className={"h-1 w-12 bg-red-600"} />
