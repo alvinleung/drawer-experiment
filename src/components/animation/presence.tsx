@@ -94,11 +94,11 @@ export function AnimatePresence({ children }: PropsWithChildren) {
     return null;
   }
 
-  const nextChildrenProps = (() => {
-    const result: Record<string, object> = {};
+  const nextChilrenByKey = (() => {
+    const result: Record<string, React.ReactElement> = {};
     nextChildren.forEach((child) => {
       if (!child.key) return;
-      result[child.key] = child.props as object;
+      result[child.key] = child as React.ReactElement;
     });
     return result;
   })();
@@ -116,8 +116,7 @@ export function AnimatePresence({ children }: PropsWithChildren) {
     const isPresent = !pendingRemovalList.has(child.key as ChildKey);
     if (!isPresent) return child;
 
-    const props = nextChildrenProps[child.key] || {};
-    return { ...child, props };
+    return nextChilrenByKey[child.key];
   });
 
   return React.Children.map(outputChildrenWithNewProps, (child) => (
@@ -186,13 +185,17 @@ function PresenceChild({
 export function usePresence(): [boolean, () => void] {
   const context = useContext(PresenceContext);
   if (!context) {
-    throw new Error(
+    console.warn(
       "Presence is not used within a PresenceContext, it will lead to odd result",
     );
   }
+
   return useMemo(() => {
-    const { isPresent, safeToRemove } = context.initiatePresenceControl();
-    return [isPresent, safeToRemove];
+    if (context) {
+      const { isPresent, safeToRemove } = context.initiatePresenceControl();
+      return [isPresent, safeToRemove];
+    }
+    return [true, () => {}];
   }, [context]);
 }
 
