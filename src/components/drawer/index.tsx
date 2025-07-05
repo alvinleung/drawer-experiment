@@ -560,7 +560,7 @@ export function Drawer({
 
   return (
     <div
-      className="select-none fixed inset-0 overscroll-none transition-colors"
+      className="select-none fixed inset-0 overscroll-none transition-colors no-scrollbar"
       ref={touchTargetRef}
       // HACK:
       // put the touch detection at a stationary div
@@ -573,6 +573,7 @@ export function Drawer({
         onDismiss?.();
       }}
     >
+      {/* With height holder, it forces safari no to render the over flowing part of the content after scrolled*/}
       <div ref={heightHolderRef} className="overflow-clip">
         <div
           ref={drawerRef}
