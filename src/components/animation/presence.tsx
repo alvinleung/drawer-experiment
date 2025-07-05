@@ -1,4 +1,3 @@
-import next from "next";
 import React, {
   createContext,
   isValidElement,
@@ -95,14 +94,33 @@ export function AnimatePresence({ children }: PropsWithChildren) {
     return null;
   }
 
-  // when the children changed, but the presence remained the same,
-  // we simply update the children
-  if (outputChildren !== nextChildren) {
-    setOutputChildren(nextChildren);
-    return null;
-  }
+  const nextChildrenProps = (() => {
+    const result: Record<string, object> = {};
+    nextChildren.forEach((child) => {
+      if (!child.key) return;
+      result[child.key] = child.props as object;
+    });
+    return result;
+  })();
 
-  return React.Children.map(outputChildren, (child) => (
+  // override the previous children props
+  const outputChildrenWithNewProps = outputChildren.map((child) => {
+    if (!child.key) {
+      console.warn(
+        "Key prop not found: All child under AnimatePresence require unique key to properly detect presence. This will lead to odd result",
+      );
+      return child;
+    }
+
+    // we don't need to update the props of removed childreN
+    const isPresent = !pendingRemovalList.has(child.key as ChildKey);
+    if (!isPresent) return child;
+
+    const props = nextChildrenProps[child.key] || {};
+    return { ...child, props };
+  });
+
+  return React.Children.map(outputChildrenWithNewProps, (child) => (
     <PresenceChild
       childKey={child.key as ChildKey}
       isPresent={!pendingRemovalList.has(child.key as ChildKey)}
@@ -168,7 +186,9 @@ function PresenceChild({
 export function usePresence(): [boolean, () => void] {
   const context = useContext(PresenceContext);
   if (!context) {
-    throw "Presence is not used within a PresenceContext, it will lead to odd result";
+    throw new Error(
+      "Presence is not used within a PresenceContext, it will lead to odd result",
+    );
   }
   return useMemo(() => {
     const { isPresent, safeToRemove } = context.initiatePresenceControl();
