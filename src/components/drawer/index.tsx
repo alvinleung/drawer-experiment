@@ -11,7 +11,6 @@ import {
 } from "react";
 import { MovementTracker } from "./movement-tracker";
 import React from "react";
-import "../debug/log";
 import {
   clamp,
   fireEventListenerOnce,
