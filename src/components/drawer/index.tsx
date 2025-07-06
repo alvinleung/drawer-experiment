@@ -14,10 +14,11 @@ import React from "react";
 import "../debug/log";
 import {
   clamp,
-  executeEventListenerOnce,
+  fireEventListenerOnce,
   getTransitionDurationSeconds,
   getTranslateY,
   useHasActiveTransition,
+  useIsLowPowerMode,
 } from "./utils";
 import {
   useObservableValue,
@@ -38,6 +39,8 @@ interface DrawerProps extends PropsWithChildren {
   snapControl: SnapPointControl;
 }
 
+const EXPANDED_THRESHOLD = 0.5;
+
 export function Drawer({
   children,
   onDismiss,
@@ -46,9 +49,6 @@ export function Drawer({
 }: DrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null) as RefObject<HTMLDivElement>;
   const heightHolderRef = useRef<HTMLDivElement>(
-    null,
-  ) as RefObject<HTMLDivElement>;
-  const touchTargetRef = useRef<HTMLDivElement>(
     null,
   ) as RefObject<HTMLDivElement>;
 
@@ -65,8 +65,8 @@ export function Drawer({
     };
   }, []);
 
-  const contentScrollY = useObserveScroll(touchTargetRef);
-  const gestureInitialStateRef = useRef<null | {
+  const contentScrollY = useObserveScroll(drawerRef);
+  const dragGestureInitialStateRef = useRef<null | {
     y: number;
     drawerOffsetY: number;
   }>(null);
@@ -87,7 +87,6 @@ export function Drawer({
       // Using the last two value to calculate Velocity is not accurate.
       // Because the last delta is likely shorten due to the scroll clamping to zero
       // So we use the delta 1 frame before to calculate the exit gesture velocity
-
       const currTime = performance.now();
       const timeDelta = currTime - prevUpdateTime.current;
       prevUpdateTime.current = currTime;
@@ -165,12 +164,12 @@ export function Drawer({
   const canScroll = useObservableValue(false);
   useObserve(canScroll, (latest) => {
     if (latest) {
-      touchTargetRef.current.style.overflowY = "scroll";
+      drawerRef.current.style.overflowY = "scroll";
       return;
     }
     // Uses "visible" instead of "hidden" to lock scroll. This  will
     // make sure the browser is ready to render the clipped part of the content
-    touchTargetRef.current.style.overflowY = "visible";
+    drawerRef.current.style.overflowY = "visible";
   });
 
   // =================================================================
@@ -236,89 +235,9 @@ export function Drawer({
       "transform",
       `translate3d(0px, ${latest}px, 0px)`,
     );
+
+    canScroll.set(latest < EXPANDED_THRESHOLD);
   });
-
-  // Interruptable gesture:
-  //
-  // To achieve interruptable gesture, the appoach here seamlessly blend scroll and
-  // the dismiss gesture together. Mobile browser numerous constraints that make it
-  // really difficault to achieve this. For example, it is nearly impossible to
-  // initiate scroll that mimic native scroll momentum. Making gesture continuation
-  // a very tricky to deal with.
-  //
-  // The final solution here take advantage the fact that the browser will intercept
-  // the manipulation of drawerY and turn that into a scroll gesture if there is room
-  // to be scrolled. For instance, you swipe up with touch but the content has room
-  // to scroll down as a respond to the gesture, it will scroll down.
-  //
-  // super hacky way to compensate scroll and offsetY difference
-  // after interrupting touch gesture with scroll. The debounce is being reset
-  // every touch down gesture as well.
-
-  const scrollCompensateTimeoutRef = useRef<
-    ReturnType<typeof setTimeout> | undefined
-  >(undefined);
-  const compensateScrollDebounced = useCallback(() => {
-    const scrollContainer = touchTargetRef.current;
-
-    const handleScroll = () => {
-      if (scrollCompensateTimeoutRef.current) {
-        clearTimeout(scrollCompensateTimeoutRef.current);
-      }
-
-      scrollCompensateTimeoutRef.current = setTimeout(() => {
-        scrollContainer.removeEventListener("scroll", handleScroll);
-
-        // delay executing the compesnation if the finger is still on the screen
-        if (isTouching.current) {
-          executeEventListenerOnce(
-            touchTargetRef.current,
-            "touchend",
-            compensateScrollDebounced,
-          );
-          return;
-        }
-
-        const computedStyle = getComputedStyle(drawerRef.current);
-        const remaindingOffset = getTranslateY(computedStyle);
-        const scrollOffest = touchTargetRef.current.scrollTop;
-
-        if (scrollOffest < remaindingOffset) {
-          // visually match the scroll with drawerY
-          transition.set("instant");
-          drawerY.set(remaindingOffset - scrollOffest);
-          scrollContainer.scrollTo({
-            top: 0,
-          });
-
-          const snapBackToTop = () => {
-            transition.set("default");
-            drawerY.set(0);
-          };
-          if (isTouching.current) {
-            executeEventListenerOnce(
-              touchTargetRef.current,
-              "touchend",
-              snapBackToTop,
-            );
-            return;
-          }
-          snapBackToTop();
-          return;
-        }
-
-        // user has scrolled, so we secretly adjust the scroll wihtout them knowing
-        scrollContainer.scrollTo({
-          top: scrollOffest - remaindingOffset,
-        });
-        transition.set("instant");
-        drawerY.set(0);
-      }, 100);
-    };
-    handleScroll();
-    scrollContainer.addEventListener("scroll", handleScroll);
-  }, [drawerY, transition]);
-
   const touchMovement = useMemo(() => new MovementTracker(), []);
   const defaultEaseFunc = useMemo(() => cubicBezier(0.35, 0.79, 0.23, 1), []);
   const hasActiveTransiton = useHasActiveTransition(drawerRef);
@@ -367,6 +286,29 @@ export function Drawer({
     [defaultEaseFunc, drawerY, hasActiveTransiton],
   );
 
+  const releaseScrollWithVelocity = useCallback((releaseVelocity: number) => {
+    let animFrame = 0;
+    let velocity = releaseVelocity;
+    const decayRate = 0.998; // a decay rate closely matches apple default
+    const drawer = drawerRef.current;
+    let prevFrameTime = performance.now();
+
+    function loop(now: number) {
+      const deltaTime = (now - prevFrameTime) / 100;
+      prevFrameTime = now;
+      velocity *= Math.pow(decayRate, deltaTime * 60);
+      drawer.scrollTo({ top: drawer.scrollTop - velocity });
+
+      if (Math.abs(velocity) > 0.1) {
+        animFrame = requestAnimationFrame(loop);
+      }
+    }
+    animFrame = requestAnimationFrame(loop);
+
+    fireEventListenerOnce(drawerRef.current, "touchstart", () =>
+      cancelAnimationFrame(animFrame),
+    );
+  }, []);
   // ======================================================================
   //
   //
@@ -375,23 +317,15 @@ export function Drawer({
   //
   // ======================================================================
 
+  const hasDrawerExpanded = useRef(false);
+
   const handleTouchStart = useCallback(
     (e: React.TouchEvent) => {
       isTouching.current = true;
 
-      if (scrollCompensateTimeoutRef.current)
-        clearTimeout(scrollCompensateTimeoutRef.current);
-
       const elm = drawerRef.current;
       const computedStyle = getComputedStyle(elm);
-      const currentY = getTranslateY(computedStyle);
       const touchY = e.touches[0].clientY;
-
-      // reject touches that outside of the drawer panel
-      if (touchY < currentY) {
-        // e.preventDefault();
-        return;
-      }
 
       const interceptedPosition = getInterruptedDrawerPosition(computedStyle);
       if (interceptedPosition) {
@@ -400,47 +334,41 @@ export function Drawer({
         drawerY.set(clamped, true);
       }
 
+      hasDrawerExpanded.current = drawerY.get() < 0.5;
+
       touchMovement.reset();
       touchMovement.track(touchY);
     },
     [getInterruptedDrawerPosition, touchMovement, transition, drawerY],
   );
 
+  // touchScollOffset houses the overflowed dragging and applies it to the scroll
+  // content body, creating a seamless scroll experience.
+  const touchScrollOffset = useRef(0);
+
   const handleTouchMove = useCallback(
     (e: React.TouchEvent) => {
       const touchY = e.touches[0].clientY;
       touchMovement.track(touchY);
-      const vel = touchMovement.calculateVelocity();
 
-      const hasScrolled = contentScrollY.get() > 0;
-      const isDismissing = drawerY.get() >= 0;
-      const isUsingInitiatingScrollDown =
-        !isDismissing && !hasScrolled && vel < 0;
+      const touchVel = touchMovement.calculateVelocity();
+      const hasDragBegun = dragGestureInitialStateRef.current !== null;
+      const canBeginDrag =
+        !canScroll.get() || (contentScrollY.get() === 0 && touchVel > 0);
 
-      // ignore touch move after user start scrolling
-      if (hasScrolled || isUsingInitiatingScrollDown) {
-        return;
-      }
-
-      // reject touches that outside of the drawer panel
-      // (we are using a dedicated fixed div to detect touch)
-      if (touchY < drawerY.get()) {
-        return;
-      }
-
-      // We initiate the gesture if it hasn't been initiated
-      // Initiation is done here because invalid drag gesture may become
-      // valid in the middle of the touch press
-      if (!gestureInitialStateRef.current) {
-        gestureInitialStateRef.current = {
+      if (!hasDragBegun && canBeginDrag) {
+        dragGestureInitialStateRef.current = {
           y: e.touches[0].clientY,
           drawerOffsetY: drawerY.get(),
         };
         transition.set("instant");
-        isTouching.current = true;
       }
 
-      const touchOffset = gestureInitialStateRef.current.y - touchY;
+      if (canScroll.get() && !hasDragBegun) {
+        return;
+      }
+
+      const touchOffset = dragGestureInitialStateRef.current!.y - touchY;
 
       const isDraggingDown = touchOffset < 0;
       const isFirstSnapPoint = snapControl.currentIndex === 0;
@@ -450,33 +378,45 @@ export function Drawer({
         touchOffset * dismissResistence * shouldApplyResistence;
 
       const newPosition =
-        gestureInitialStateRef.current.drawerOffsetY - touchOffset + resistence;
+        dragGestureInitialStateRef.current!.drawerOffsetY -
+        touchOffset +
+        resistence;
       const clampedNewPosition = clamp(0, window.innerHeight, newPosition);
 
       // render it to the dom
       drawerY.set(clampedNewPosition);
+
+      const remaindingY = newPosition - clampedNewPosition;
+      drawerRef.current.scrollTop = -remaindingY;
+      touchScrollOffset.current = -remaindingY;
     },
     [
       touchMovement,
       contentScrollY,
-      drawerY,
+      canScroll,
       snapControl.currentIndex,
       dismissResistence,
+      drawerY,
       transition,
     ],
   );
 
   const handleTouchEnd = useCallback(() => {
+    const hasDragGestureBegun = dragGestureInitialStateRef.current !== null;
+
     //reset the gesture
-    gestureInitialStateRef.current = null;
+    dragGestureInitialStateRef.current = null;
+    hasDrawerExpanded.current = false;
     isTouching.current = false;
 
     const velocitySmoothed = touchMovement.calculateVelocity(3);
 
-    // trigger the compensation sequence if part of the
-    // scroll is done by body scrolling
-    if (contentScrollY.get() > 0) {
-      compensateScrollDebounced();
+    // return early if the content is scrolled
+    if (drawerY.get() < 1) {
+      drawerY.set(0);
+      if (hasDragGestureBegun) {
+        releaseScrollWithVelocity(velocitySmoothed);
+      }
       return;
     }
 
@@ -494,11 +434,10 @@ export function Drawer({
 
     snapControl.navigateToIndex(snap.index);
   }, [
-    contentScrollY,
-    drawerY,
     touchMovement,
+    drawerY,
     snapControl,
-    compensateScrollDebounced,
+    releaseScrollWithVelocity,
     onDismiss,
   ]);
 
@@ -515,15 +454,12 @@ export function Drawer({
 
     if (isPresent) {
       transition.set("default");
+
       // needs a slight delay so the enter animation can be reset to zero
       requestAnimationFrame(() => {
         const point = snapControl.snapPoints[snapControl.currentIndex];
         const pixelY = getSnapPointPixelY(point);
         drawerY.set(window.innerHeight - pixelY);
-
-        const isLastSnapPoint =
-          snapControl.currentIndex === snapControl.snapPoints.length - 1;
-        canScroll.set(isLastSnapPoint);
       });
       return;
     }
@@ -547,44 +483,19 @@ export function Drawer({
     canScroll,
   ]);
 
-  // because we are using an invisible touch target at the background
-  // to track finger gesture, it sits on top of the body, blocking all interactions.
-  // for better user experience, we need to stop blocking it asap.
-  useEffect(() => {
-    if (!isPresent) {
-      touchTargetRef.current.style.pointerEvents = "none";
-      return;
-    }
-    touchTargetRef.current.style.pointerEvents = "all";
-  }, [isPresent]);
-
   return (
     <div
-      className="select-none fixed inset-0 overscroll-none transition-colors no-scrollbar"
-      ref={touchTargetRef}
-      // HACK:
-      // put the touch detection at a stationary div
-      // because the browser seems to be unable to catch up with the animation hit box
-      // it fails to register touch when the drawer sheet is beginning out of the screen
+      className="rounded-t-2xl bg-zinc-800 will-change-transform transition-(--transition) duration-(--duration) ease-(--easing) fixed inset-0 overscroll-none no-scrollbar"
+      ref={drawerRef}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchMove}
       onTouchStart={handleTouchStart}
-      onClick={() => {
-        onDismiss?.();
-      }}
     >
-      {/* With height holder, it forces safari no to render the over flowing part of the content after scrolled*/}
-      <div ref={heightHolderRef} className="overflow-clip">
-        <div
-          ref={drawerRef}
-          onClickCapture={(e) => e.stopPropagation()}
-          className="absolute top-6 rounded-t-2xl will-change-transform  bg-gray-700 transition-(--transition) duration-(--duration) ease-(--easing)"
-        >
-          <div className="flex w-full items-center justify-center py-2">
-            <div className={"h-1 w-12 bg-red-600"} />
-          </div>
-          {children}
+      <div className="select-none">
+        <div className="flex w-full items-center justify-center py-2">
+          <div className={"h-1 w-12 bg-zinc-600"} />
         </div>
+        {children}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { RefObject, useEffect } from "react";
+import { RefObject, useEffect, useState } from "react";
 import { useObservableValue } from "../animation/observable-value";
 
 export const clamp = (min: number, max: number, value: number) =>
@@ -58,7 +58,7 @@ export function useHasActiveTransition<T extends HTMLElement>(
   return hasActiveTransition;
 }
 
-export function executeEventListenerOnce<
+export function fireEventListenerOnce<
   T extends HTMLElement,
   K extends keyof HTMLElementEventMap,
 >(
