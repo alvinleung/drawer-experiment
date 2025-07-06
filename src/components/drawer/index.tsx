@@ -18,7 +18,6 @@ import {
   getTransitionDurationSeconds,
   getTranslateY,
   useHasActiveTransition,
-  useIsLowPowerMode,
 } from "./utils";
 import {
   useObservableValue,
